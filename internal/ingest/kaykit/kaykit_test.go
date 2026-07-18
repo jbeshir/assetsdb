@@ -7,14 +7,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jbeshir/assetsdb/format"
+	"github.com/jbeshir/assetsdb"
 	"github.com/stretchr/testify/require"
 )
 
-const fixturePath = "../../../format/testdata/kaykit-min.zip"
+const fixturePath = "../../../testdata/kaykit-min.zip"
 
-func testSpec() format.PackSpec {
-	return format.PackSpec{
+func testSpec() assetsdb.PackSpec {
+	return assetsdb.PackSpec{
 		ID:      "kaykit-furniture-bits",
 		Name:    "KayKit Furniture Bits",
 		Source:  "kaykit",
@@ -42,7 +42,7 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 	// directory entries themselves are all not classifiable/skippable and must not appear.
 	require.Len(t, items, 4)
 
-	byPath := make(map[string]format.Item, len(items))
+	byPath := make(map[string]assetsdb.Item, len(items))
 	for _, it := range items {
 		byPath[it.Path] = it
 	}
@@ -54,7 +54,7 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 
 	armchair, ok := byPath[armchairPath]
 	require.True(t, ok, "expected model3d item for armchair.gltf")
-	require.Equal(t, format.KindModel3D, armchair.Kind)
+	require.Equal(t, assetsdb.KindModel3D, armchair.Kind)
 	require.Equal(t, "gltf", armchair.Format)
 	require.Equal(t, []string{"armchair"}, armchair.Tokens)
 	require.Equal(t, "Armchair", armchair.Title)
@@ -63,16 +63,16 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 
 	chair, ok := byPath[chairPath]
 	require.True(t, ok, "expected model3d item for chair_A.gltf")
-	require.Equal(t, format.KindModel3D, chair.Kind)
+	require.Equal(t, assetsdb.KindModel3D, chair.Kind)
 	require.Equal(t, "Chair A", chair.Title)
 
 	gltfTex, ok := byPath[gltfTexPath]
 	require.True(t, ok, "expected sprite2d item for gltf/furniturebits_texture.png")
-	require.Equal(t, format.KindSprite2D, gltfTex.Kind)
+	require.Equal(t, assetsdb.KindSprite2D, gltfTex.Kind)
 
 	texTex, ok := byPath[texTexPath]
 	require.True(t, ok, "expected sprite2d item for texture/furniturebits_texture.png")
-	require.Equal(t, format.KindSprite2D, texTex.Kind)
+	require.Equal(t, assetsdb.KindSprite2D, texTex.Kind)
 
 	// Skipped files must not produce items under any path.
 	for p := range byPath {
@@ -135,8 +135,8 @@ func TestWalkZip_DedupsSiblingModelFormats(t *testing.T) {
 }
 
 // itemsMatchingPath returns the items whose Path contains sub.
-func itemsMatchingPath(items []format.Item, sub string) []format.Item {
-	var out []format.Item
+func itemsMatchingPath(items []assetsdb.Item, sub string) []assetsdb.Item {
+	var out []assetsdb.Item
 	for _, it := range items {
 		if strings.Contains(it.Path, sub) {
 			out = append(out, it)
@@ -170,7 +170,7 @@ func TestWalkZip_ModelFormatDedupHasNoCollisions(t *testing.T) {
 
 	seen := make(map[string]string)
 	for _, it := range items {
-		if it.Kind != format.KindModel3D {
+		if it.Kind != assetsdb.KindModel3D {
 			continue
 		}
 		key := assetKey(it.Path)

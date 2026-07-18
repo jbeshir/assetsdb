@@ -2,9 +2,8 @@
 
 This is the authoritative specification of the assetsdb on-disk database format: the directory
 layout, the `datapackage.json` JSON schema, id and license-inheritance rules, and the reserved
-phase-2 generated-source design. Schema and serialization types live in
-`github.com/jbeshir/assetsdb/format`; consumer-facing database access lives at the importable
-module root, `github.com/jbeshir/assetsdb`.
+phase-2 generated-source design. Database access, schema and serialization types, catalog
+helpers, and ingest contracts all live in `github.com/jbeshir/assetsdb`.
 
 Field-name provenance (Frictionless-standard vs. DCAT-mapped vs. custom) is researched in
 `/workspace/refs/FINDINGS-frictionless.md`; this document restates only the conclusions needed to
@@ -80,8 +79,8 @@ FINDINGS-frictionless.md §4's naming-clash note.
 | *(no `licenses` key)* | — | — | — | An `Item` never carries its own license field. Resolve the effective license via `DB.LicenseFor`, which walks item → source → package (§2.4). |
 | `x_assetsdb:id` | `ID` | yes | custom | Canonical stable global id; see the id-form rule below. |
 | `x_assetsdb:source` | `Source` | yes | custom | Owning `Source.Name`, resolvable via `DB.SourceByID`. |
-| `x_assetsdb:kind` | `Kind` | yes | custom | One of `sprite2d` \| `model3d` \| `audio` \| `font` (`format.Kind`). |
-| `x_assetsdb:tokens` | `Tokens` | no | custom | Lowercase, de-duplicated search tokens from `format.Tokenize`. |
+| `x_assetsdb:kind` | `Kind` | yes | custom | One of `sprite2d` \| `model3d` \| `audio` \| `font` (`assetsdb.Kind`). |
+| `x_assetsdb:tokens` | `Tokens` | no | custom | Lowercase, de-duplicated search tokens from `assetsdb.Tokenize`. |
 | `x_assetsdb:region` | `Region` | no | custom | `{x,y,width,height}` atlas sub-region; present only for a Kenney atlas sub-sprite, absent for a whole-file item. |
 | `x_assetsdb:provenance` | `Provenance` | no (always `null` in v1) | custom | RESERVED for phase-2; see §5. Every curated item leaves this `null`. |
 
@@ -168,10 +167,10 @@ breaking change to the JSON shape or layout bumps `schemaVersion`; `assetsdb.Rea
 reject or migrate an incompatible on-disk database. Additive, backward-compatible changes (a new
 optional `x_assetsdb:` key) do not require a bump.
 
-## 4. Go API and package boundary
+## 4. Go API
 
-The module root owns operational database access. Its public schema names are aliases of the
-`format` definitions, so consumers normally need only one import:
+The module root owns database access, schema and serialization, catalog construction,
+classification, tokenization, and ingest contracts:
 
 ```go
 func Read(root string) (*DB, error)
@@ -193,9 +192,6 @@ checked lexically and after symlink evaluation to prevent access outside the dat
 
 `ErrNotFound` is returned (wrapped with `%w`) for unknown sources, missing registered archives,
 and missing archive entries; check with `errors.Is(err, assetsdb.ErrNotFound)`.
-
-The `format` package owns the on-disk schema, JSON serialization, catalog construction,
-classification, and ingest contracts. It does not open a database root or retrieve archives:
 
 ```go
 func Classify(path string) (kind Kind, ok bool)   // extension -> Kind; ok=false for ignored files
@@ -226,7 +222,7 @@ reserved design so a future phase has a fixed contract to build against.
   generated assets are added incrementally one at a time (`assetsdb add`), not fetched as a
   pre-built archive.
 - Every generated `Item` fills in `x_assetsdb:provenance` (the `Provenance` Go type, already
-  defined in `format/types.go`, always `nil` on every v1/curated item):
+  defined by `assetsdb.Provenance`, always `nil` on every v1/curated item):
 
   ```jsonc
   "x_assetsdb:provenance": {

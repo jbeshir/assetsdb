@@ -1,4 +1,5 @@
-// Package assetsdb provides read-only access to an assetsdb database directory.
+// Package assetsdb defines the assets database format and provides tools to build, serialize,
+// classify, tokenize, and read an assetsdb database directory.
 package assetsdb
 
 import (
@@ -10,25 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/jbeshir/assetsdb/format"
-)
-
-// Format types are aliases so consumers can use the database API without importing format.
-type (
-	Item       = format.Item
-	Kind       = format.Kind
-	License    = format.License
-	Provenance = format.Provenance
-	Region     = format.Region
-	Source     = format.Source
-)
-
-const (
-	KindSprite2D = format.KindSprite2D
-	KindModel3D  = format.KindModel3D
-	KindAudio    = format.KindAudio
-	KindFont     = format.KindFont
 )
 
 // ErrNotFound identifies an unknown source, a missing registered archive, or a missing item.
@@ -39,11 +21,11 @@ const dataPackageFile = "datapackage.json"
 // DB is a read-only, in-memory index of an assetsdb database directory.
 type DB struct {
 	root          string
-	dataPackage   *format.DataPackage
-	sources       []format.Source
-	items         []format.Item
-	sourcesByID   map[string]format.Source
-	itemsBySource map[string][]format.Item
+	dataPackage   *DataPackage
+	sources       []Source
+	items         []Item
+	sourcesByID   map[string]Source
+	itemsBySource map[string][]Item
 }
 
 // Read loads and indexes the datapackage.json beneath root.
@@ -66,7 +48,7 @@ func Read(root string) (*DB, error) {
 	return indexDataPackage(canonicalRoot, dataPackage), nil
 }
 
-func readDataPackage(root string) (*format.DataPackage, error) {
+func readDataPackage(root string) (*DataPackage, error) {
 	path := filepath.Join(root, dataPackageFile)
 
 	// #nosec G304 -- path is constrained to the caller-selected database root.
@@ -76,7 +58,7 @@ func readDataPackage(root string) (*format.DataPackage, error) {
 	}
 	defer func() { _ = file.Close() }()
 
-	dataPackage, err := format.Decode(file)
+	dataPackage, err := Decode(file)
 	if err != nil {
 		return nil, fmt.Errorf("assetsdb: read %s: %w", dataPackageFile, err)
 	}
@@ -84,7 +66,7 @@ func readDataPackage(root string) (*format.DataPackage, error) {
 	return dataPackage, nil
 }
 
-func indexDataPackage(root string, dataPackage *format.DataPackage) *DB {
+func indexDataPackage(root string, dataPackage *DataPackage) *DB {
 	sources := cloneSources(dataPackage.Sources)
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Name < sources[j].Name })
 	items := cloneItems(dataPackage.Resources)
@@ -95,8 +77,8 @@ func indexDataPackage(root string, dataPackage *format.DataPackage) *DB {
 		dataPackage:   dataPackage,
 		sources:       sources,
 		items:         items,
-		sourcesByID:   make(map[string]format.Source, len(sources)),
-		itemsBySource: make(map[string][]format.Item),
+		sourcesByID:   make(map[string]Source, len(sources)),
+		itemsBySource: make(map[string][]Item),
 	}
 
 	for _, source := range sources {
@@ -114,7 +96,7 @@ func indexDataPackage(root string, dataPackage *format.DataPackage) *DB {
 func (db *DB) Search(query string) []Item {
 	queryTokens := strings.Fields(strings.ToLower(query))
 
-	matches := make([]format.Item, 0)
+	matches := make([]Item, 0)
 	for _, item := range db.items {
 		haystack := strings.ToLower(item.Title + " " + strings.Join(item.Tokens, " "))
 		if containsAll(haystack, queryTokens) {
@@ -155,7 +137,7 @@ func (db *DB) SourceByID(id string) (Source, bool) {
 // Unknown sources and sources with no items both return an empty slice.
 func (db *DB) ItemsForSource(sourceID string) []Item {
 	items := db.itemsBySource[sourceID]
-	result := make([]format.Item, len(items))
+	result := make([]Item, len(items))
 	for i, item := range items {
 		result[i] = cloneItem(item)
 	}
@@ -294,8 +276,8 @@ func (reader *itemReadCloser) Close() error {
 	return archiveErr
 }
 
-func cloneSources(sources []format.Source) []format.Source {
-	result := make([]format.Source, len(sources))
+func cloneSources(sources []Source) []Source {
+	result := make([]Source, len(sources))
 	for i, source := range sources {
 		result[i] = cloneSource(source)
 	}
@@ -303,8 +285,8 @@ func cloneSources(sources []format.Source) []format.Source {
 	return result
 }
 
-func cloneItems(items []format.Item) []format.Item {
-	result := make([]format.Item, len(items))
+func cloneItems(items []Item) []Item {
+	result := make([]Item, len(items))
 	for i, item := range items {
 		result[i] = cloneItem(item)
 	}
@@ -312,14 +294,14 @@ func cloneItems(items []format.Item) []format.Item {
 	return result
 }
 
-func cloneSource(source format.Source) format.Source {
-	source.Licenses = append([]format.License(nil), source.Licenses...)
+func cloneSource(source Source) Source {
+	source.Licenses = append([]License(nil), source.Licenses...)
 	source.Tags = append([]string(nil), source.Tags...)
 
 	return source
 }
 
-func cloneItem(item format.Item) format.Item {
+func cloneItem(item Item) Item {
 	item.Tokens = append([]string(nil), item.Tokens...)
 
 	if item.Region != nil {

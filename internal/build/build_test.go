@@ -12,14 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jbeshir/assetsdb"
-	"github.com/jbeshir/assetsdb/format"
 )
 
-// fakeIngester is a network-free format.Ingester stand-in for testing Build.
+// fakeIngester is a network-free assetsdb.Ingester stand-in for testing Build.
 type fakeIngester struct {
 	name  string
-	src   format.Source
-	items []format.Item
+	src   assetsdb.Source
+	items []assetsdb.Item
 	zip   []byte
 }
 
@@ -27,7 +26,7 @@ type fakeIngester struct {
 func (f *fakeIngester) Name() string { return f.name }
 
 // Ingest returns f's configured Source, Items, and zip bytes, ignoring its arguments.
-func (f *fakeIngester) Ingest(_ context.Context, _ format.PackSpec) (format.Source, []format.Item, []byte, error) {
+func (f *fakeIngester) Ingest(_ context.Context, _ assetsdb.PackSpec) (assetsdb.Source, []assetsdb.Item, []byte, error) {
 	return f.src, f.items, f.zip, nil
 }
 
@@ -52,23 +51,23 @@ func buildZip(t *testing.T, files map[string][]byte) []byte {
 func TestBuild(t *testing.T) {
 	dir := t.TempDir()
 
-	ingesters := map[string]format.Ingester{
+	ingesters := map[string]assetsdb.Ingester{
 		"fakeA": &fakeIngester{
 			name: "fakeA",
-			src: format.Source{
+			src: assetsdb.Source{
 				Name:     "pack-a",
 				Title:    "Pack A",
 				Path:     "sources/pack-a.zip",
-				Licenses: []format.License{{Name: "CC0-1.0"}},
+				Licenses: []assetsdb.License{{Name: "CC0-1.0"}},
 				Type:     "curated",
 			},
-			items: []format.Item{
+			items: []assetsdb.Item{
 				{
 					Name:   "pack-a-widget",
 					Path:   "a.png",
 					ID:     "assetsdb:pack-a/a.png",
 					Source: "pack-a",
-					Kind:   format.KindSprite2D,
+					Kind:   assetsdb.KindSprite2D,
 					Title:  "Alpha Widget",
 					Tokens: []string{"alpha", "widget"},
 				},
@@ -77,20 +76,20 @@ func TestBuild(t *testing.T) {
 		},
 		"fakeB": &fakeIngester{
 			name: "fakeB",
-			src: format.Source{
+			src: assetsdb.Source{
 				Name:     "pack-b",
 				Title:    "Pack B",
 				Path:     "sources/pack-b.zip",
-				Licenses: []format.License{{Name: "CC0-1.0"}},
+				Licenses: []assetsdb.License{{Name: "CC0-1.0"}},
 				Type:     "curated",
 			},
-			items: []format.Item{
+			items: []assetsdb.Item{
 				{
 					Name:   "pack-b-explosion",
 					Path:   "b.ogg",
 					ID:     "assetsdb:pack-b/b.ogg",
 					Source: "pack-b",
-					Kind:   format.KindAudio,
+					Kind:   assetsdb.KindAudio,
 					Title:  "Explosion Sound",
 					Tokens: []string{"explosion", "sound"},
 				},
@@ -99,7 +98,7 @@ func TestBuild(t *testing.T) {
 		},
 	}
 
-	specs := []format.PackSpec{
+	specs := []assetsdb.PackSpec{
 		{ID: "pack-b", Name: "Pack B", Source: "fakeB"},
 		{ID: "pack-a", Name: "Pack A", Source: "fakeA"},
 	}
@@ -137,9 +136,9 @@ func TestBuild(t *testing.T) {
 
 func TestBuildUnknownSource(t *testing.T) {
 	dir := t.TempDir()
-	specs := []format.PackSpec{{ID: "x", Source: "missing"}}
+	specs := []assetsdb.PackSpec{{ID: "x", Source: "missing"}}
 
-	_, err := Build(t.Context(), specs, map[string]format.Ingester{}, dir, time.Now())
+	_, err := Build(t.Context(), specs, map[string]assetsdb.Ingester{}, dir, time.Now())
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrUnknownSource)
 }

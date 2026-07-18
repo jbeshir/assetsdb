@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jbeshir/assetsdb"
-	"github.com/jbeshir/assetsdb/format"
 )
 
 func TestReadSearchAndLicense(t *testing.T) {
@@ -21,7 +20,7 @@ func TestReadSearchAndLicense(t *testing.T) {
 	hits := db.Search("GOLD coin")
 	require.Len(t, hits, 1)
 	require.Equal(t, "assetsdb:source-a/a.png", hits[0].ID)
-	require.Equal(t, format.License{Name: "CC0-1.0"}, db.LicenseFor(hits[0]))
+	require.Equal(t, assetsdb.License{Name: "CC0-1.0"}, db.LicenseFor(hits[0]))
 
 	orphan := hits[0]
 	orphan.Source = "unknown"
@@ -76,7 +75,7 @@ func TestOpenNotFoundErrors(t *testing.T) {
 	missingSource.Name = "missing"
 	missingSource.Path = "sources/missing.zip"
 	missingPackage := *dataPackage
-	missingPackage.Sources = append([]format.Source{missingSource}, dataPackage.Sources...)
+	missingPackage.Sources = append([]assetsdb.Source{missingSource}, dataPackage.Sources...)
 	missingDB := readTestDB(t, t.TempDir(), &missingPackage, nil)
 
 	_, err = missingDB.OpenSource("missing")
@@ -182,7 +181,7 @@ func TestItemEnumerationIsOrderedAndMutationSafe(t *testing.T) {
 	require.Empty(t, db.ItemsForSource("unknown"))
 }
 
-func createTestDB(t *testing.T) (*assetsdb.DB, *format.DataPackage) {
+func createTestDB(t *testing.T) (*assetsdb.DB, *assetsdb.DataPackage) {
 	t.Helper()
 
 	root := t.TempDir()
@@ -198,25 +197,25 @@ func createTestDB(t *testing.T) (*assetsdb.DB, *format.DataPackage) {
 	return readTestDB(t, root, dataPackage, archives), dataPackage
 }
 
-func testDataPackage() *format.DataPackage {
-	return &format.DataPackage{
+func testDataPackage() *assetsdb.DataPackage {
+	return &assetsdb.DataPackage{
 		Name:          "assetsdb-test",
 		Title:         "Test Package",
 		Version:       "1.0.0",
 		Created:       "2026-07-18T00:00:00Z",
-		Licenses:      []format.License{{Name: "package-license"}},
+		Licenses:      []assetsdb.License{{Name: "package-license"}},
 		SchemaVersion: 1,
-		Sources: []format.Source{
+		Sources: []assetsdb.Source{
 			{
 				Name: "source-b", Title: "Source B", Path: "stored/source-b.raw", Type: "curated",
-				Licenses: []format.License{{Name: "CC0-1.0"}}, Tags: []string{"audio"},
+				Licenses: []assetsdb.License{{Name: "CC0-1.0"}}, Tags: []string{"audio"},
 			},
 			{
 				Name: "source-a", Title: "Source A", Path: "archives/custom-a.zip", Type: "curated",
-				Licenses: []format.License{{Name: "CC0-1.0"}}, Tags: []string{"icons"},
+				Licenses: []assetsdb.License{{Name: "CC0-1.0"}}, Tags: []string{"icons"},
 			},
 		},
-		Resources: []format.Item{
+		Resources: []assetsdb.Item{
 			{
 				Name: "z", Path: "images/z.png", ID: "assetsdb:source-a/z.png", Source: "source-a",
 				Title: "Silver Coin", Tokens: []string{"silver", "coin"},
@@ -227,8 +226,8 @@ func testDataPackage() *format.DataPackage {
 			},
 			{
 				Name: "a", Path: "images/a.png", ID: "assetsdb:source-a/a.png", Source: "source-a",
-				Title: "Gold Coin", Tokens: []string{"coin", "gold"}, Region: &format.Region{X: 1},
-				Provenance: &format.Provenance{Params: map[string]string{"seed": "1"}},
+				Title: "Gold Coin", Tokens: []string{"coin", "gold"}, Region: &assetsdb.Region{X: 1},
+				Provenance: &assetsdb.Provenance{Params: map[string]string{"seed": "1"}},
 			},
 		},
 	}
@@ -237,7 +236,7 @@ func testDataPackage() *format.DataPackage {
 func readTestDB(
 	t *testing.T,
 	root string,
-	dataPackage *format.DataPackage,
+	dataPackage *assetsdb.DataPackage,
 	archives map[string][]byte,
 ) *assetsdb.DB {
 	t.Helper()
@@ -250,7 +249,7 @@ func readTestDB(
 
 	index, err := os.Create(filepath.Join(root, "datapackage.json")) // #nosec G304 -- test path.
 	require.NoError(t, err)
-	require.NoError(t, format.Encode(index, dataPackage))
+	require.NoError(t, assetsdb.Encode(index, dataPackage))
 	require.NoError(t, index.Close())
 
 	db, err := assetsdb.Read(root)
@@ -285,7 +284,7 @@ func readAndClose(t *testing.T, reader io.ReadCloser) []byte {
 	return contents
 }
 
-func itemByID(t *testing.T, dataPackage *format.DataPackage, id string) format.Item {
+func itemByID(t *testing.T, dataPackage *assetsdb.DataPackage, id string) assetsdb.Item {
 	t.Helper()
 
 	for _, item := range dataPackage.Resources {
@@ -295,10 +294,10 @@ func itemByID(t *testing.T, dataPackage *format.DataPackage, id string) format.I
 	}
 
 	t.Fatalf("item %q not found in test data package", id)
-	return format.Item{}
+	return assetsdb.Item{}
 }
 
-func itemIDs(items []format.Item) []string {
+func itemIDs(items []assetsdb.Item) []string {
 	ids := make([]string, len(items))
 	for i, item := range items {
 		ids[i] = item.ID
