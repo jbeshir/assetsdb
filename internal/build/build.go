@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -106,11 +107,46 @@ func Build(
 		Resources:     items,
 	}
 
-	if err := format.Write(outDir, dp); err != nil {
+	if err := writeDataPackage(outDir, dp); err != nil {
 		return nil, fmt.Errorf("assetsdb: write datapackage: %w", err)
 	}
 
 	return dp, nil
+}
+
+// writeDataPackage atomically serializes dataPackage into outDir/datapackage.json.
+func writeDataPackage(outDir string, dataPackage *format.DataPackage) error {
+	temporary, err := os.CreateTemp(outDir, ".datapackage-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary data package: %w", err)
+	}
+
+	temporaryPath := temporary.Name()
+	if err := encodeAndClose(temporary, dataPackage); err != nil {
+		_ = os.Remove(temporaryPath)
+		return err
+	}
+
+	finalPath := filepath.Join(outDir, "datapackage.json")
+	if err := os.Rename(temporaryPath, finalPath); err != nil {
+		_ = os.Remove(temporaryPath)
+		return fmt.Errorf("rename data package: %w", err)
+	}
+
+	return nil
+}
+
+func encodeAndClose(file io.WriteCloser, dataPackage *format.DataPackage) error {
+	if err := format.Encode(file, dataPackage); err != nil {
+		_ = file.Close()
+		return err
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close data package: %w", err)
+	}
+
+	return nil
 }
 
 // makeOutputDirs creates outDir and its sources and generated subdirectories.

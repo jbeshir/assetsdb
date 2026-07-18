@@ -80,12 +80,13 @@ Two curated ingest sources, both confirmed CC0-1.0:
 
 ## Consuming assetsdb from Go
 
-`mcp-servers/assets` (and any other Go consumer) imports the `format` package directly:
+`mcp-servers/assets` (and any other Go consumer) imports the module root. The `format` subpackage
+is reserved for code that constructs or serializes the on-disk catalog:
 
 ```go
-import "github.com/jbeshir/assetsdb/format"
+import "github.com/jbeshir/assetsdb"
 
-db, err := format.Read(os.Getenv("ASSETS_DB"))
+db, err := assetsdb.Read(os.Getenv("ASSETS_DB"))
 if err != nil {
     // handle error
 }
@@ -96,7 +97,14 @@ for _, item := range hits {
     rc, err := db.Open(item)
     // ...
 }
+
+sources := db.Sources() // stable source-ID order; safe for the caller to mutate
+items := db.ItemsForSource(sources[0].Name) // stable item-ID order; also mutation-safe
+
+archive, err := db.OpenSource(sources[0].Name) // raw registered source archive
+// use and close archive
 ```
 
 `ASSETS_DB` should point at a directory built by `assetsdb build` (i.e. one containing
-`datapackage.json`). See [SPEC.md](SPEC.md) for the full `format` API.
+`datapackage.json`). `Open` and `OpenSource` use the archive path registered in each source and
+reject paths that escape the database root. See [SPEC.md](SPEC.md) for the complete API boundary.

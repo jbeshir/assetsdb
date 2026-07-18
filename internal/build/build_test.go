@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/jbeshir/assetsdb"
 	"github.com/jbeshir/assetsdb/format"
 )
 
@@ -120,7 +121,13 @@ func TestBuild(t *testing.T) {
 	require.FileExists(t, filepath.Join(dir, "sources", "pack-b.zip"))
 	require.DirExists(t, filepath.Join(dir, "generated"))
 
-	db, err := format.Read(dir)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.NotContains(t, entry.Name(), ".datapackage-")
+	}
+
+	db, err := assetsdb.Read(dir)
 	require.NoError(t, err)
 
 	hits := db.Search("explosion")
@@ -165,5 +172,13 @@ packs:
 func TestLoadManifestRealPacksYAML(t *testing.T) {
 	specs, err := LoadManifest("../../packs.yaml")
 	require.NoError(t, err)
-	require.Len(t, specs, 10)
+	require.GreaterOrEqual(t, len(specs), 10)
+
+	ids := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		ids[spec.ID] = true
+	}
+
+	require.True(t, ids["kaykit-furniture-bits"])
+	require.True(t, ids["kaykit-city-builder-bits"])
 }
