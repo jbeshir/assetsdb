@@ -1,7 +1,7 @@
 package format
 
 import (
-	"path/filepath"
+	"path"
 	"strings"
 )
 
@@ -104,6 +104,6 @@ func MediaType(path string) string {
 	return mediaTypeByExt[extOf(path)]
 }
 
-func extOf(path string) string {
-	return strings.ToLower(filepath.Ext(path))
+func extOf(p string) string {
+	return strings.ToLower(path.Ext(p))
 }

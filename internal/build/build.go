@@ -26,11 +26,7 @@ const packageVersion = "1.0.0"
 
 // packageLicense is the package-level default license recorded on every built DataPackage: every
 // v1 curated source is CC0-1.0.
-var packageLicense = format.License{
-	Name:  "CC0-1.0",
-	Path:  "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
-	Title: "Creative Commons Zero v1.0 Universal",
-}
+var packageLicense = format.LicenseForSPDX("CC0-1.0")
 
 // manifestFile is the top-level shape of a packs manifest YAML file.
 type manifestFile struct {
@@ -137,7 +133,9 @@ func ingestAll(
 	outDir string,
 ) ([]format.Source, []format.Item, error) {
 	sources := make([]format.Source, 0, len(specs))
-	var items []format.Item
+	// items is initialized non-nil so a zero-item build still marshals "resources": [] rather
+	// than the Frictionless-invalid "resources": null.
+	items := make([]format.Item, 0)
 
 	for _, spec := range specs {
 		src, specItems, err := ingestOne(ctx, spec, ingesters, outDir)

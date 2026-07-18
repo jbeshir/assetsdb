@@ -7,8 +7,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -18,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jbeshir/assetsdb/format"
 )
@@ -36,14 +35,11 @@ var ErrUnexpectedStatus = errors.New("kenney: unexpected http status")
 // defaultUserAgent identifies this ingester to kenney.nl.
 const defaultUserAgent = "assetsdb-kenney-ingester/1.0 (+https://github.com/jbeshir/assetsdb)"
 
-// kenneyLicense is the license every Kenney pack is distributed under, confirmed by reading the
-// License.txt bundled in every downloaded pack (see refs/FINDINGS-kenney.md). It is hard-coded
-// rather than parsed per download.
-var kenneyLicense = format.License{
-	Name:  "CC0-1.0",
-	Path:  "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
-	Title: "Creative Commons Zero v1.0 Universal",
-}
+// defaultHTTPClient is the fallback HTTP client used when Ingester.Client is nil. It carries a
+// timeout so a stalled kenney.nl connection cannot hang a build indefinitely. Every Kenney pack is
+// confirmed CC0-1.0 (License.txt in each pack; see refs/FINDINGS-kenney.md); the license itself
+// flows through from the manifest via format.LicenseForSPDX.
+var defaultHTTPClient = &http.Client{Timeout: 60 * time.Second}
 
 // packURLPattern matches a Kenney pack page URL and captures its slug.
 var packURLPattern = regexp.MustCompile(`^https?://kenney\.nl/assets/([a-z0-9-]+)/?$`)
@@ -93,15 +89,7 @@ func (in *Ingester) Ingest(ctx context.Context, spec format.PackSpec) (format.So
 		return format.Source{}, nil, nil, fmt.Errorf("kenney: walk zip for %s: %w", spec.ID, err)
 	}
 
-	src := format.Source{
-		Name:     spec.ID,
-		Title:    spec.Name,
-		Path:     "sources/" + spec.ID + ".zip",
-		Licenses: []format.License{kenneyLicense},
-		Type:     "curated",
-		Origin:   spec.URL,
-		Tags:     spec.Tags,
-	}
+	src := format.CuratedSource(spec, format.LicenseForSPDX(spec.License))
 
 	return src, items, data, nil
 }
@@ -133,12 +121,12 @@ func (in *Ingester) fetch(ctx context.Context, url string) ([]byte, error) {
 	return data, nil
 }
 
-// httpClient returns in.Client, defaulting to http.DefaultClient.
+// httpClient returns in.Client, defaulting to defaultHTTPClient.
 func (in *Ingester) httpClient() *http.Client {
 	if in.Client != nil {
 		return in.Client
 	}
-	return http.DefaultClient
+	return defaultHTTPClient
 }
 
 // slugFromURL extracts the pack slug from a https://kenney.nl/assets/<slug> pack page URL.
@@ -198,7 +186,7 @@ func walkZip(spec format.PackSpec, data []byte) ([]format.Item, error) {
 		return nil, err
 	}
 
-	names := newNameAllocator()
+	names := format.NewNameAllocator()
 	var items []format.Item
 
 	for _, f := range zr.File {
@@ -268,23 +256,22 @@ func readAtlas(f *zip.File) (textureAtlas, error) {
 }
 
 // atlasItems builds one Item per SubTexture cut from the atlas image at atlasPath.
-func atlasItems(spec format.PackSpec, atlasPath string, subs []subTexture, names *nameAllocator) []format.Item {
+func atlasItems(spec format.PackSpec, atlasPath string, subs []subTexture, names *format.NameAllocator) []format.Item {
 	items := make([]format.Item, 0, len(subs))
 
 	for _, sub := range subs {
-		tokens := format.Tokenize(sub.Name)
-		base := slugify(spec.ID + "-" + strings.TrimSuffix(sub.Name, path.Ext(sub.Name)))
+		stem := strings.TrimSuffix(sub.Name, path.Ext(sub.Name))
 
 		items = append(items, format.Item{
-			Name:      names.allocate(base),
+			Name:      names.Allocate(format.Slugify(spec.ID + "-" + stem)),
 			Path:      atlasPath,
-			Format:    extNoDot(atlasPath),
+			Format:    format.ExtNoDot(atlasPath),
 			MediaType: format.MediaType(atlasPath),
-			Title:     humanize(tokens),
-			ID:        fmt.Sprintf("assetsdb:%s/%s#%s", spec.ID, atlasPath, sub.Name),
+			Title:     format.Title(stem),
+			ID:        format.ItemID(spec.ID, atlasPath, sub.Name),
 			Source:    spec.ID,
 			Kind:      format.KindSprite2D,
-			Tokens:    tokens,
+			Tokens:    format.Tokenize(sub.Name),
 			Region:    &format.Region{X: sub.X, Y: sub.Y, Width: sub.Width, Height: sub.Height},
 		})
 	}
@@ -294,109 +281,38 @@ func atlasItems(spec format.PackSpec, atlasPath string, subs []subTexture, names
 
 // fileItem builds the Item for a non-atlas zip entry f, or ok=false if format.Classify skips
 // its extension.
-func fileItem(spec format.PackSpec, f *zip.File, names *nameAllocator) (format.Item, bool, error) {
+func fileItem(spec format.PackSpec, f *zip.File, names *format.NameAllocator) (format.Item, bool, error) {
 	kind, ok := format.Classify(f.Name)
 	if !ok {
 		return format.Item{}, false, nil
 	}
 
-	size, hash, err := hashEntry(f)
-	if err != nil {
-		return format.Item{}, false, err
-	}
-
-	tokens := format.Tokenize(f.Name)
-	base := slugify(spec.ID + "-" + strings.TrimSuffix(path.Base(f.Name), path.Ext(f.Name)))
-
-	item := format.Item{
-		Name:      names.allocate(base),
-		Path:      f.Name,
-		Format:    extNoDot(f.Name),
-		MediaType: format.MediaType(f.Name),
-		Bytes:     size,
-		Hash:      hash,
-		Title:     humanize(tokens),
-		ID:        fmt.Sprintf("assetsdb:%s/%s", spec.ID, f.Name),
-		Source:    spec.ID,
-		Kind:      kind,
-		Tokens:    tokens,
-	}
-
-	return item, true, nil
-}
-
-// hashEntry reads f's contents and returns its size and a "sha256:"-prefixed hex digest.
-func hashEntry(f *zip.File) (int64, string, error) {
 	rc, err := f.Open()
 	if err != nil {
-		return 0, "", fmt.Errorf("kenney: open %s: %w", f.Name, err)
+		return format.Item{}, false, fmt.Errorf("kenney: open %s: %w", f.Name, err)
 	}
 	defer func() { _ = rc.Close() }()
 
-	data, err := io.ReadAll(rc)
+	contents, err := io.ReadAll(rc)
 	if err != nil {
-		return 0, "", fmt.Errorf("kenney: read %s: %w", f.Name, err)
+		return format.Item{}, false, fmt.Errorf("kenney: read %s: %w", f.Name, err)
 	}
 
-	sum := sha256.Sum256(data)
-	return int64(len(data)), "sha256:" + hex.EncodeToString(sum[:]), nil
-}
+	stem := strings.TrimSuffix(path.Base(f.Name), path.Ext(f.Name))
 
-// extNoDot returns p's lowercased file extension without its leading dot.
-func extNoDot(p string) string {
-	return strings.TrimPrefix(strings.ToLower(path.Ext(p)), ".")
-}
-
-// humanize joins tokens into a human-readable, capitalized title.
-func humanize(tokens []string) string {
-	parts := make([]string, len(tokens))
-	for i, t := range tokens {
-		parts[i] = capitalize(t)
+	item := format.Item{
+		Name:      names.Allocate(format.Slugify(spec.ID + "-" + stem)),
+		Path:      f.Name,
+		Format:    format.ExtNoDot(f.Name),
+		MediaType: format.MediaType(f.Name),
+		Bytes:     int64(len(contents)),
+		Hash:      format.Hash(contents),
+		Title:     format.Title(stem),
+		ID:        format.ItemID(spec.ID, f.Name, ""),
+		Source:    spec.ID,
+		Kind:      kind,
+		Tokens:    format.Tokenize(f.Name),
 	}
-	return strings.Join(parts, " ")
-}
 
-// capitalize upper-cases s's first rune, leaving the rest unchanged.
-func capitalize(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	return strings.ToUpper(string(r[0])) + string(r[1:])
-}
-
-// slugInvalid matches runs of characters not allowed in a Frictionless resource name.
-var slugInvalid = regexp.MustCompile(`[^a-z0-9._-]+`)
-
-// dashRun matches runs of two or more consecutive hyphens.
-var dashRun = regexp.MustCompile(`-{2,}`)
-
-// slugify lowercases s, replaces every run of disallowed characters with a single hyphen,
-// collapses repeated hyphens, and trims leading/trailing hyphens.
-func slugify(s string) string {
-	s = strings.ToLower(s)
-	s = slugInvalid.ReplaceAllString(s, "-")
-	s = dashRun.ReplaceAllString(s, "-")
-	return strings.Trim(s, "-")
-}
-
-// nameAllocator hands out deterministic, unique Frictionless resource names for a pack: repeated
-// calls with the same base get "-2", "-3", ... suffixes.
-type nameAllocator struct {
-	counts map[string]int
-}
-
-// newNameAllocator returns an empty nameAllocator.
-func newNameAllocator() *nameAllocator {
-	return &nameAllocator{counts: make(map[string]int)}
-}
-
-// allocate returns base unchanged the first time it is seen, and base suffixed with "-N" for the
-// Nth collision thereafter.
-func (a *nameAllocator) allocate(base string) string {
-	a.counts[base]++
-	if n := a.counts[base]; n > 1 {
-		return fmt.Sprintf("%s-%d", base, n)
-	}
-	return base
+	return item, true, nil
 }

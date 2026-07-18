@@ -1,15 +1,14 @@
 // Package kaykit implements format.Ingester for KayKit-Game-Assets GitHub repositories: it
 // downloads a pack's codeload ZIP archive, walks it to catalog 3D model and texture assets while
-// deduplicating redundant model formats, and reports every pack's license as CC0-1.0 (KayKit's
-// LICENSE.txt is manually confirmed CC0 even though GitHub's API reports NOASSERTION for it).
+// deduplicating redundant model formats, and reports every pack's license from its PackSpec (in
+// practice CC0-1.0: KayKit's LICENSE.txt is manually confirmed CC0 even though GitHub's API
+// reports NOASSERTION for it, and the manifest declares CC0-1.0 for every KayKit pack).
 package kaykit
 
 import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jbeshir/assetsdb/format"
 )
@@ -38,17 +38,13 @@ var ErrInvalidSpecURL = errors.New("kaykit: invalid spec URL")
 // download.
 var ErrDownloadFailed = errors.New("kaykit: archive download failed")
 
-// cc0License is the license entry recorded for every KayKit pack; see the package doc for why
-// this is hard-coded rather than trusted from the GitHub API.
-var cc0License = format.License{
-	Name:  "CC0-1.0",
-	Path:  "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
-	Title: "Creative Commons Zero v1.0 Universal",
-}
+// defaultHTTPClient is the fallback HTTP client used when Ingester.HTTPClient is nil. It carries a
+// timeout so a stalled kenney/codeload connection cannot hang a build indefinitely.
+var defaultHTTPClient = &http.Client{Timeout: 60 * time.Second}
 
 // Ingester implements format.Ingester for KayKit-Game-Assets GitHub repositories.
 type Ingester struct {
-	// HTTPClient performs all network requests; http.DefaultClient is used when nil.
+	// HTTPClient performs all network requests; defaultHTTPClient is used when nil.
 	HTTPClient *http.Client
 }
 
@@ -77,25 +73,17 @@ func (i *Ingester) Ingest(ctx context.Context, spec format.PackSpec) (format.Sou
 		return format.Source{}, nil, nil, fmt.Errorf("kaykit: walk %s/%s: %w", owner, repo, err)
 	}
 
-	src := format.Source{
-		Name:     spec.ID,
-		Title:    spec.Name,
-		Path:     "sources/" + spec.ID + ".zip",
-		Licenses: []format.License{cc0License},
-		Type:     "curated",
-		Origin:   spec.URL,
-		Tags:     spec.Tags,
-	}
+	src := format.CuratedSource(spec, format.LicenseForSPDX(spec.License))
 
 	return src, items, data, nil
 }
 
-// client returns the HTTP client to use for requests, falling back to http.DefaultClient.
+// client returns the HTTP client to use for requests, falling back to defaultHTTPClient.
 func (i *Ingester) client() *http.Client {
 	if i.HTTPClient != nil {
 		return i.HTTPClient
 	}
-	return http.DefaultClient
+	return defaultHTTPClient
 }
 
 // repoInfo is the subset of the GitHub repository API response this ingester reads.
@@ -227,7 +215,7 @@ func walkZip(spec format.PackSpec, data []byte) ([]format.Item, error) {
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].path < candidates[j].path })
 
 	items := make([]format.Item, 0, len(candidates))
-	names := make(map[string]int, len(candidates))
+	names := format.NewNameAllocator()
 	for _, c := range candidates {
 		item, ierr := buildItem(spec, c, names)
 		if ierr != nil {
@@ -272,7 +260,7 @@ func isPreviewImage(p string) bool {
 }
 
 // dedupModelFormats keeps only the highest-priority model file (see modelFormatPriority) for
-// each distinct dir+basename asset, so a model shipped as both .fbx and .gltf yields one item.
+// each logical asset (see assetKey), so a model shipped as both .fbx and .gltf yields one item.
 // Candidates that aren't model3d, or are a model3d format outside modelFormatPriority, pass
 // through unchanged.
 func dedupModelFormats(candidates []candidate) []candidate {
@@ -283,7 +271,7 @@ func dedupModelFormats(candidates []candidate) []candidate {
 			continue
 		}
 		key := assetKey(c.path)
-		if cur, ok := best[key]; !ok || pri < mustCandidateModelPriority(cur) {
+		if cur, ok := best[key]; !ok || pri < candidatePriorityOrZero(cur) {
 			best[key] = c
 		}
 	}
@@ -313,23 +301,68 @@ func candidateModelPriority(c candidate) (priority int, participates bool) {
 	return pri, ok
 }
 
-// mustCandidateModelPriority returns c's model-format priority; callers only invoke it for
-// candidates already known to participate in dedup.
-func mustCandidateModelPriority(c candidate) int {
+// candidatePriorityOrZero returns c's model-format priority, or zero if it does not participate in
+// dedup; callers only invoke it for candidates already known to participate.
+func candidatePriorityOrZero(c candidate) int {
 	pri, _ := candidateModelPriority(c)
 	return pri
 }
 
+// modelBaseExts are the model-format extensions stripped when computing an asset's
+// format-agnostic logical base name.
+var modelBaseExts = map[string]bool{".glb": true, ".gltf": true, ".fbx": true, ".obj": true}
+
+// formatBucketDirs are the directory names KayKit segregates each model format into; a trailing
+// segment matching one of these is removed when computing an asset's grouping directory, so the
+// same asset's fbx/, gltf/, and obj/ copies share a group.
+var formatBucketDirs = map[string]bool{
+	"fbx":    true,
+	"gltf":   true,
+	"glb":    true,
+	"obj":    true,
+	"model":  true,
+	"models": true,
+}
+
+// logicalModelBase returns p's basename with every trailing model-format extension stripped, so
+// all formats of one asset share a base. It collapses the binary-glTF double extension
+// ("banner_blue.gltf.glb" -> "banner_blue") as well as a single ".fbx"/".obj"/".gltf".
+func logicalModelBase(p string) string {
+	b := path.Base(p)
+	for {
+		if !modelBaseExts[strings.ToLower(path.Ext(b))] {
+			return b
+		}
+		b = strings.TrimSuffix(b, path.Ext(b))
+	}
+}
+
+// groupingDir returns the directory a model file is grouped under for dedup: p's parent
+// directory, with a trailing format-bucket segment (fbx/gltf/obj/...) removed so sibling
+// per-format directories collapse to their shared parent.
+func groupingDir(p string) string {
+	dir := path.Dir(p)
+	if formatBucketDirs[strings.ToLower(path.Base(dir))] {
+		return path.Dir(dir)
+	}
+	return dir
+}
+
 // assetKey identifies the logical asset a model file belongs to, independent of its format
-// extension: its directory plus its extension-stripped basename.
+// extension and of the per-format bucket directory it ships in: its grouping directory plus its
+// format-agnostic logical base. Two different assets in different top directories (e.g.
+// Furniture/gltf/chair vs Kitchen/gltf/chair) keep distinct keys because their grouping
+// directories differ.
 func assetKey(p string) string {
-	return path.Dir(p) + "/" + basenameNoExt(p)
+	return groupingDir(p) + "/" + logicalModelBase(p)
 }
 
 // buildItem reads c's contents from the still-open zip and constructs its catalog Item. names
-// tracks Frictionless-name slugs already assigned within this walk, so a collision (two assets
-// sharing a basename in different directories) gets a "-2", "-3", ... suffix.
-func buildItem(spec format.PackSpec, c candidate, names map[string]int) (format.Item, error) {
+// hands out collision-suffixed Frictionless slugs across the walk. For a model file, the title,
+// tokens, and slug derive from the format-agnostic logical base, so a binary-glTF double
+// extension never leaks a stray "gltf"/"glb" into them; for other files the plain basename is
+// used.
+func buildItem(spec format.PackSpec, c candidate, names *format.NameAllocator) (format.Item, error) {
 	rc, err := c.file.Open()
 	if err != nil {
 		return format.Item{}, fmt.Errorf("open: %w", err)
@@ -341,85 +374,38 @@ func buildItem(spec format.PackSpec, c candidate, names map[string]int) (format.
 		return format.Item{}, fmt.Errorf("read: %w", err)
 	}
 
-	sum := sha256.Sum256(contents)
-	base := basenameNoExt(c.path)
-	ext := strings.ToLower(path.Ext(c.path))
+	base, tokens := titleBaseAndTokens(c)
 
 	return format.Item{
-		Name:      uniqueSlug(spec.ID+"-"+slugify(base), names),
+		Name:      names.Allocate(spec.ID + "-" + format.Slugify(base)),
 		Path:      c.path,
-		Format:    strings.TrimPrefix(ext, "."),
+		Format:    format.ExtNoDot(c.path),
 		MediaType: format.MediaType(c.path),
 		Bytes:     int64(len(contents)),
-		Hash:      "sha256:" + hex.EncodeToString(sum[:]),
-		Title:     humanizeTitle(base),
-		ID:        fmt.Sprintf("assetsdb:%s/%s", spec.ID, c.path),
+		Hash:      format.Hash(contents),
+		Title:     format.Title(base),
+		ID:        format.ItemID(spec.ID, c.path, ""),
 		Source:    spec.ID,
 		Kind:      c.kind,
-		Tokens:    format.Tokenize(c.path),
+		Tokens:    tokens,
 	}, nil
+}
+
+// titleBaseAndTokens returns the title/slug base and the search tokens for c. A model file uses
+// its format-agnostic logical base (all model extensions stripped) so a double extension does not
+// leak a format token; any other file keeps the plain basename and full-path tokenization.
+func titleBaseAndTokens(c candidate) (base string, tokens []string) {
+	if c.kind == format.KindModel3D {
+		lb := logicalModelBase(c.path)
+		return lb, format.Tokenize(path.Join(path.Dir(c.path), lb))
+	}
+	return basenameNoExt(c.path), format.Tokenize(c.path)
 }
 
 // basenameNoExt returns p's final path segment with its extension stripped.
 func basenameNoExt(p string) string {
 	b := path.Base(p)
 	return strings.TrimSuffix(b, path.Ext(b))
-}
-
-// nonSlugChars matches any run of characters not permitted in a Frictionless resource name.
-var nonSlugChars = regexp.MustCompile(`[^a-z0-9._-]+`)
-
-// slugify lowercases s and replaces every run of non-slug characters with a single hyphen, so
-// the result matches the Frictionless name pattern ^[a-z0-9._-]+$.
-func slugify(s string) string {
-	return nonSlugChars.ReplaceAllString(strings.ToLower(s), "-")
-}
-
-// uniqueSlug returns base the first time it's requested, then base suffixed with "-2", "-3", ...
-// on each subsequent collision, recording the count in names.
-func uniqueSlug(base string, names map[string]int) string {
-	n := names[base]
-	names[base] = n + 1
-	if n == 0 {
-		return base
-	}
-	return fmt.Sprintf("%s-%d", base, n+1)
-}
-
-// delimiterSplitter splits a filename stem on the explicit delimiters humanizeTitle treats as
-// word boundaries.
-var delimiterSplitter = regexp.MustCompile(`[_\-\s.]+`)
-
-// wordSplitter finds camelCase words, acronym runs, and digit runs within a delimiter-free
-// segment, matching format.Tokenize's own word-boundary rule.
-var wordSplitter = regexp.MustCompile(`[A-Z]+[a-z]*|[a-z]+|[0-9]+`)
-
-// humanizeTitle turns an extension-stripped basename like "chair_A" into a human-readable title
-// like "Chair A": split on delimiters and camelCase/digit boundaries, then capitalize each word.
-func humanizeTitle(base string) string {
-	var words []string
-	for _, part := range delimiterSplitter.Split(base, -1) {
-		for _, w := range wordSplitter.FindAllString(part, -1) {
-			words = append(words, capitalizeWord(w))
-		}
-	}
-	if len(words) == 0 {
-		return base
-	}
-	return strings.Join(words, " ")
-}
-
-// capitalizeWord upper-cases w's first rune, leaving the rest as-is (wordSplitter's acronym
-// branch already yields runs like "HTTP" that should stay upper-case).
-func capitalizeWord(w string) string {
-	if w == "" {
-		return w
-	}
-	r := []rune(w)
-	if r[0] >= 'a' && r[0] <= 'z' {
-		r[0] -= 'a' - 'A'
-	}
-	return string(r)
 }
 
 // ensure Ingester satisfies format.Ingester at compile time.

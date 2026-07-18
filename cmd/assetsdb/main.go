@@ -68,9 +68,9 @@ func runBuild(args []string) error {
 		return fmt.Errorf("load manifest: %w", err)
 	}
 
-	ingesters := map[string]format.Ingester{
-		"kenney": kenney.New(),
-		"kaykit": &kaykit.Ingester{},
+	ingesters := make(map[string]format.Ingester)
+	for _, ing := range []format.Ingester{kenney.New(), &kaykit.Ingester{}} {
+		ingesters[ing.Name()] = ing
 	}
 
 	dp, err := build.Build(context.Background(), specs, ingesters, *outDir, time.Now())

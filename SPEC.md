@@ -18,8 +18,11 @@ use the format.
   sources/<sourceid>.zip    # One ZIP per curated source, stored verbatim as fetched from
                              # upstream (Kenney or KayKit). <sourceid> matches Source.Name /
                              # PackSpec.ID. Item.Path values are paths WITHIN this ZIP.
-  generated/                # RESERVED for phase-2 (§5). v1 writes only a .gitkeep + note here;
-                             # no code path in this repository reads or writes files under it.
+  generated/                # RESERVED for phase-2 (§5). `assetsdb build` creates this directory
+                             # empty; no v1 code path reads or writes files under it. (The
+                             # generated/.gitkeep committed in the assetsdb source tree is only a
+                             # git placeholder so the directory exists in the repo — it is not
+                             # build output.)
 ```
 
 There is no other required top-level state. A `DB` (`format.Read`) is a read-only in-memory view

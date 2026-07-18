@@ -1,7 +1,10 @@
 package kaykit
 
 import (
+	"archive/zip"
+	"bytes"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jbeshir/assetsdb/format"
@@ -76,6 +79,88 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 		require.NotContains(t, p, "LICENSE.txt")
 		require.NotContains(t, p, ".bin")
 	}
+}
+
+// TestWalkZip_DedupsSiblingModelFormats exercises the real KayKit layout the fixture never
+// covers: each model format lives in its own sibling directory (fbx/, gltf/, obj/), and the
+// binary glTF carries a ".gltf.glb" double extension. Against the old dir+basename assetKey these
+// produced a distinct key per format and nothing deduped; this test fails there and passes once
+// the grouping key normalizes the format-bucket directory and strips all model extensions.
+func TestWalkZip_DedupsSiblingModelFormats(t *testing.T) {
+	files := map[string][]byte{
+		"pack-main/Assets/fbx/banner_blue.fbx":       []byte("fbx-bytes"),
+		"pack-main/Assets/gltf/banner_blue.gltf.bin": []byte("bin-bytes"),
+		"pack-main/Assets/gltf/banner_blue.gltf.glb": []byte("glb-bytes"),
+		"pack-main/Assets/obj/banner_blue.obj":       []byte("obj-bytes"),
+		"pack-main/Assets/obj/banner_blue.mtl":       []byte("mtl-bytes"),
+		// A second distinct asset, shipped in all three formats, must also collapse to one .glb.
+		"pack-main/Assets/fbx/table_round.fbx":       []byte("fbx-bytes"),
+		"pack-main/Assets/gltf/table_round.gltf.glb": []byte("glb-bytes"),
+		"pack-main/Assets/obj/table_round.obj":       []byte("obj-bytes"),
+		// Same basename under two different top directories must NOT be merged.
+		"pack-main/Furniture/gltf/chair.gltf": []byte("chair-furniture"),
+		"pack-main/Kitchen/gltf/chair.gltf":   []byte("chair-kitchen"),
+	}
+
+	items, err := walkZip(testSpec(), buildTestZip(t, files))
+	require.NoError(t, err)
+
+	// banner_blue collapses to exactly one item, the preferred .glb.
+	banner := itemsMatchingPath(items, "banner_blue")
+	require.Len(t, banner, 1)
+	require.Equal(t, "glb", banner[0].Format)
+	require.True(t, strings.HasSuffix(banner[0].Path, "gltf/banner_blue.gltf.glb"), "path %q", banner[0].Path)
+
+	// table_round likewise collapses to exactly its .glb.
+	table := itemsMatchingPath(items, "table_round")
+	require.Len(t, table, 1)
+	require.Equal(t, "glb", table[0].Format)
+
+	// The two chair assets in different top directories are NOT merged.
+	chairs := itemsMatchingPath(items, "chair")
+	require.Len(t, chairs, 2)
+	require.NotEqual(t, assetKey(chairs[0].Path), assetKey(chairs[1].Path))
+
+	// .bin and .mtl sidecars are excluded entirely.
+	for _, it := range items {
+		require.NotContains(t, it.Path, ".bin")
+		require.NotContains(t, it.Path, ".mtl")
+	}
+
+	// The surviving banner_blue item leaks no format token or word from the .gltf.glb double
+	// extension.
+	require.NotContains(t, banner[0].Tokens, "gltf")
+	require.NotContains(t, banner[0].Tokens, "glb")
+	require.Equal(t, "Banner Blue", banner[0].Title)
+}
+
+// itemsMatchingPath returns the items whose Path contains sub.
+func itemsMatchingPath(items []format.Item, sub string) []format.Item {
+	var out []format.Item
+	for _, it := range items {
+		if strings.Contains(it.Path, sub) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// buildTestZip returns the bytes of an in-memory ZIP containing files, for synthesizing archives
+// with layouts the committed fixture does not cover.
+func buildTestZip(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, data := range files {
+		w, err := zw.Create(name)
+		require.NoError(t, err)
+		_, err = w.Write(data)
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+
+	return buf.Bytes()
 }
 
 func TestWalkZip_ModelFormatDedupHasNoCollisions(t *testing.T) {

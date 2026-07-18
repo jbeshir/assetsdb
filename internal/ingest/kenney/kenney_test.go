@@ -80,7 +80,7 @@ func TestWalkZip(t *testing.T) {
 	coin := findItem(t, items, "assetsdb:kenney-jumper-pack/PNG/HUD/coin_gold.png")
 	require.Equal(t, format.KindSprite2D, coin.Kind)
 	require.Equal(t, []string{"coin", "gold", "hud"}, coin.Tokens)
-	require.Equal(t, "Coin Gold Hud", coin.Title)
+	require.Equal(t, "Coin Gold", coin.Title)
 	require.Nil(t, coin.Region)
 	require.Equal(t, int64(1351), coin.Bytes)
 	require.Equal(t, "sha256:", coin.Hash[:7])
