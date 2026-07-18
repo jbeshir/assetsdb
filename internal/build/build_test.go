@@ -1,0 +1,169 @@
+package build
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/jbeshir/assetsdb/format"
+)
+
+// fakeIngester is a network-free format.Ingester stand-in for testing Build.
+type fakeIngester struct {
+	name  string
+	src   format.Source
+	items []format.Item
+	zip   []byte
+}
+
+// Name returns f's configured name.
+func (f *fakeIngester) Name() string { return f.name }
+
+// Ingest returns f's configured Source, Items, and zip bytes, ignoring its arguments.
+func (f *fakeIngester) Ingest(_ context.Context, _ format.PackSpec) (format.Source, []format.Item, []byte, error) {
+	return f.src, f.items, f.zip, nil
+}
+
+// buildZip returns the bytes of a minimal ZIP archive containing files, for use as fake
+// downloaded pack data.
+func buildZip(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, data := range files {
+		w, err := zw.Create(name)
+		require.NoError(t, err)
+		_, err = w.Write(data)
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+
+	return buf.Bytes()
+}
+
+func TestBuild(t *testing.T) {
+	dir := t.TempDir()
+
+	ingesters := map[string]format.Ingester{
+		"fakeA": &fakeIngester{
+			name: "fakeA",
+			src: format.Source{
+				Name:     "pack-a",
+				Title:    "Pack A",
+				Path:     "sources/pack-a.zip",
+				Licenses: []format.License{{Name: "CC0-1.0"}},
+				Type:     "curated",
+			},
+			items: []format.Item{
+				{
+					Name:   "pack-a-widget",
+					Path:   "a.png",
+					ID:     "assetsdb:pack-a/a.png",
+					Source: "pack-a",
+					Kind:   format.KindSprite2D,
+					Title:  "Alpha Widget",
+					Tokens: []string{"alpha", "widget"},
+				},
+			},
+			zip: buildZip(t, map[string][]byte{"a.png": []byte("dataA")}),
+		},
+		"fakeB": &fakeIngester{
+			name: "fakeB",
+			src: format.Source{
+				Name:     "pack-b",
+				Title:    "Pack B",
+				Path:     "sources/pack-b.zip",
+				Licenses: []format.License{{Name: "CC0-1.0"}},
+				Type:     "curated",
+			},
+			items: []format.Item{
+				{
+					Name:   "pack-b-explosion",
+					Path:   "b.ogg",
+					ID:     "assetsdb:pack-b/b.ogg",
+					Source: "pack-b",
+					Kind:   format.KindAudio,
+					Title:  "Explosion Sound",
+					Tokens: []string{"explosion", "sound"},
+				},
+			},
+			zip: buildZip(t, map[string][]byte{"b.ogg": []byte("dataB")}),
+		},
+	}
+
+	specs := []format.PackSpec{
+		{ID: "pack-b", Name: "Pack B", Source: "fakeB"},
+		{ID: "pack-a", Name: "Pack A", Source: "fakeA"},
+	}
+
+	now := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+
+	dp, err := Build(t.Context(), specs, ingesters, dir, now)
+	require.NoError(t, err)
+	require.Equal(t, "assetsdb", dp.Name)
+	require.Equal(t, "2026-07-18T00:00:00Z", dp.Created)
+	require.Len(t, dp.Sources, 2)
+
+	require.Len(t, dp.Resources, 2)
+	require.Equal(t, "assetsdb:pack-a/a.png", dp.Resources[0].ID)
+	require.Equal(t, "assetsdb:pack-b/b.ogg", dp.Resources[1].ID)
+
+	require.FileExists(t, filepath.Join(dir, "datapackage.json"))
+	require.FileExists(t, filepath.Join(dir, "sources", "pack-a.zip"))
+	require.FileExists(t, filepath.Join(dir, "sources", "pack-b.zip"))
+	require.DirExists(t, filepath.Join(dir, "generated"))
+
+	db, err := format.Read(dir)
+	require.NoError(t, err)
+
+	hits := db.Search("explosion")
+	require.Len(t, hits, 1)
+	require.Equal(t, "assetsdb:pack-b/b.ogg", hits[0].ID)
+}
+
+func TestBuildUnknownSource(t *testing.T) {
+	dir := t.TempDir()
+	specs := []format.PackSpec{{ID: "x", Source: "missing"}}
+
+	_, err := Build(t.Context(), specs, map[string]format.Ingester{}, dir, time.Now())
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrUnknownSource)
+}
+
+func TestLoadManifest(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "packs.yaml")
+	content := `
+packs:
+  - id: test-pack
+    name: "Test Pack"
+    source: kenney
+    url: https://kenney.nl/assets/test-pack
+    theme: test
+    tags: [alpha, beta]
+    license: CC0-1.0
+`
+	require.NoError(t, os.WriteFile(manifestPath, []byte(content), 0o600))
+
+	specs, err := LoadManifest(manifestPath)
+	require.NoError(t, err)
+	require.Len(t, specs, 1)
+	require.Equal(t, "test-pack", specs[0].ID)
+	require.Equal(t, "Test Pack", specs[0].Name)
+	require.Equal(t, "kenney", specs[0].Source)
+	require.Equal(t, []string{"alpha", "beta"}, specs[0].Tags)
+	require.Equal(t, "CC0-1.0", specs[0].License)
+}
+
+func TestLoadManifestRealPacksYAML(t *testing.T) {
+	specs, err := LoadManifest("../../packs.yaml")
+	require.NoError(t, err)
+	require.Len(t, specs, 10)
+}
