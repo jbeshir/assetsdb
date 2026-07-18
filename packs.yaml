@@ -1,0 +1,93 @@
+# packs.yaml — starter curated manifest for `assetsdb build --manifest packs.yaml --out <db>`.
+#
+# Each entry is one PackSpec (format.PackSpec: id->ID, name->Name, source->Source, url->URL,
+# theme->Theme, tags->Tags, license->License). `source` selects the Ingester ("kenney" or
+# "kaykit") that fetches and catalogs the pack.
+#
+# All packs listed here are CC0-1.0 (public domain) — verified directly against the upstream
+# license files, not inferred. See /workspace/refs/FINDINGS-kenney.md and FINDINGS-kaykit.md for
+# how each was confirmed. CC0-1.0 covers the ASSETS; the assetsdb source code itself is MIT
+# (see LICENSE) — these are two separate licenses for two separate things.
+
+packs:
+  # Kenney (source: kenney) — 2D sprites, tiles, and spritesheets, page-scraped from kenney.nl.
+  - id: kenney-1-bit-pack
+    name: "Kenney 1-Bit Pack"
+    source: kenney
+    url: https://kenney.nl/assets/1-bit-pack
+    theme: retro
+    tags: [1-bit, retro, tiles, 2d]
+    license: CC0-1.0
+
+  - id: kenney-space-shooter-extension
+    name: "Kenney Space Shooter Extension"
+    source: kenney
+    url: https://kenney.nl/assets/space-shooter-extension
+    theme: space
+    tags: [space, shooter, 2d, spritesheet]
+    license: CC0-1.0
+
+  - id: kenney-platformer-kit
+    name: "Kenney Platformer Kit"
+    source: kenney
+    url: https://kenney.nl/assets/platformer-kit
+    theme: platformer
+    tags: [platformer, 3d, kit]
+    license: CC0-1.0
+
+  # KayKit (source: kaykit) — 3D low-poly models, fetched from GitHub codeload (branch main).
+  - id: kaykit-furniture-bits
+    name: "KayKit Furniture Bits"
+    source: kaykit
+    url: https://github.com/KayKit-Game-Assets/KayKit-Furniture-Bits-1.0
+    theme: interiors
+    tags: [furniture, 3d, low-poly]
+    license: CC0-1.0
+
+  - id: kaykit-city-builder-bits
+    name: "KayKit City Builder Bits"
+    source: kaykit
+    url: https://github.com/KayKit-Game-Assets/KayKit-City-Builder-Bits-1.0
+    theme: city
+    tags: [city, 3d, low-poly]
+    license: CC0-1.0
+
+  - id: kaykit-space-base-bits
+    name: "KayKit Space Base Bits"
+    source: kaykit
+    url: https://github.com/KayKit-Game-Assets/KayKit-Space-Base-Bits-1.0
+    theme: space
+    tags: [space, 3d, modular]
+    license: CC0-1.0
+
+  - id: kaykit-prototype-bits
+    name: "KayKit Prototype Bits"
+    source: kaykit
+    url: https://github.com/KayKit-Game-Assets/KayKit-Prototype-Bits-1.0
+    theme: prototype
+    tags: [prototype, 3d]
+    license: CC0-1.0
+
+  - id: kaykit-halloween-bits
+    name: "KayKit Halloween Bits"
+    source: kaykit
+    url: https://github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0
+    theme: halloween
+    tags: [halloween, 3d, spooky]
+    license: CC0-1.0
+
+  - id: kaykit-restaurant-bits
+    name: "KayKit Restaurant Bits"
+    source: kaykit
+    url: https://github.com/KayKit-Game-Assets/KayKit-Restaurant-Bits-1.0
+    theme: restaurant
+    tags: [restaurant, 3d, kitchen]
+    license: CC0-1.0
+
+  - id: kaykit-dungeon-remastered
+    name: "KayKit Dungeon Remastered"
+    source: kaykit
+    url: https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0
+    theme: dungeon
+    tags: [dungeon, 3d, props]
+    license: CC0-1.0
