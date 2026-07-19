@@ -1,5 +1,5 @@
 // Package build implements the assetsdb manifest loader and the build orchestrator: it fetches
-// each curated pack via its format.Ingester, stores the raw archive it returns, and assembles the
+// each curated pack via its assetsdb.Ingester, stores the raw archive it returns, and assembles the
 // resulting datapackage.json. It contains no ingester-specific or provider-specific logic.
 package build
 
@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,38 +15,42 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/jbeshir/assetsdb/format"
+	"github.com/jbeshir/assetsdb"
 )
 
 // ErrUnknownSource is returned when a PackSpec names a Source with no matching entry in the
 // ingesters map passed to Build.
 var ErrUnknownSource = errors.New("assetsdb: no ingester for source")
 
+// ErrInvalidExtractionPolicy is returned for a missing or unknown manifest extraction value.
+var ErrInvalidExtractionPolicy = errors.New("assetsdb: invalid extraction policy")
+
 // packageVersion is the semver of the datapackage.json format content Build assembles.
-const packageVersion = "1.0.0"
+const packageVersion = "2.0.0"
 
 // packageLicense is the package-level default license recorded on every built DataPackage: every
 // v1 curated source is CC0-1.0.
-var packageLicense = format.LicenseForSPDX("CC0-1.0")
+var packageLicense = assetsdb.LicenseForSPDX("CC0-1.0")
 
 // manifestFile is the top-level shape of a packs manifest YAML file.
 type manifestFile struct {
 	Packs []manifestPack `yaml:"packs"`
 }
 
-// manifestPack is one manifest entry, mapping directly onto format.PackSpec.
+// manifestPack is one manifest entry, mapping directly onto assetsdb.PackSpec.
 type manifestPack struct {
-	ID      string   `yaml:"id"`
-	Name    string   `yaml:"name"`
-	Source  string   `yaml:"source"`
-	URL     string   `yaml:"url"`
-	Theme   string   `yaml:"theme"`
-	Tags    []string `yaml:"tags"`
-	License string   `yaml:"license"`
+	ID         string   `yaml:"id"`
+	Name       string   `yaml:"name"`
+	Source     string   `yaml:"source"`
+	URL        string   `yaml:"url"`
+	Theme      string   `yaml:"theme"`
+	Tags       []string `yaml:"tags"`
+	License    string   `yaml:"license"`
+	Extraction string   `yaml:"extraction"`
 }
 
-// LoadManifest parses the packs manifest YAML file at path into a slice of format.PackSpec.
-func LoadManifest(path string) ([]format.PackSpec, error) {
+// LoadManifest parses the packs manifest YAML file at path into a slice of assetsdb.PackSpec.
+func LoadManifest(path string) ([]assetsdb.PackSpec, error) {
 	// #nosec G304 -- path is the caller-supplied manifest file path
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -57,20 +62,74 @@ func LoadManifest(path string) ([]format.PackSpec, error) {
 		return nil, fmt.Errorf("assetsdb: parse manifest %s: %w", path, err)
 	}
 
-	specs := make([]format.PackSpec, 0, len(mf.Packs))
+	specs := make([]assetsdb.PackSpec, 0, len(mf.Packs))
 	for _, p := range mf.Packs {
-		specs = append(specs, format.PackSpec{
-			ID:      p.ID,
-			Name:    p.Name,
-			Source:  p.Source,
-			URL:     p.URL,
-			Theme:   p.Theme,
-			Tags:    p.Tags,
-			License: p.License,
+		policy := assetsdb.ExtractionPolicy(p.Extraction)
+		if !policy.Valid() {
+			return nil, fmt.Errorf("%w for pack %s: %q", ErrInvalidExtractionPolicy, p.ID, p.Extraction)
+		}
+		specs = append(specs, assetsdb.PackSpec{
+			ID:         p.ID,
+			Name:       p.Name,
+			Source:     p.Source,
+			URL:        p.URL,
+			Theme:      p.Theme,
+			Tags:       p.Tags,
+			License:    p.License,
+			Extraction: policy,
 		})
 	}
 
 	return specs, nil
+}
+
+// Reindex rebuilds catalog metadata from archives already present under outDir/sources. It does
+// not modify archive bytes or access the network.
+func Reindex(ctx context.Context, specs []assetsdb.PackSpec, ingesters map[string]assetsdb.Ingester,
+	outDir string, now time.Time) (*assetsdb.DataPackage, error) {
+	if err := validateSpecs(specs); err != nil {
+		return nil, err
+	}
+	if err := makeOutputDirs(outDir); err != nil {
+		return nil, err
+	}
+	sources := make([]assetsdb.Source, 0, len(specs))
+	items := make([]assetsdb.Item, 0)
+	for _, spec := range specs {
+		in, ok := ingesters[spec.Source]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrUnknownSource, spec.Source)
+		}
+		archiveIngester, ok := in.(assetsdb.ArchiveIngester)
+		if !ok {
+			return nil, fmt.Errorf("assetsdb: ingester %s cannot reindex archives", spec.Source)
+		}
+		archivePath := filepath.Join(outDir, "sources", spec.ID+".zip")
+		// #nosec G304 -- archivePath is derived from the caller-selected output root and manifest ID.
+		data, err := os.ReadFile(archivePath)
+		if err != nil {
+			return nil, fmt.Errorf("assetsdb: read %s: %w", archivePath, err)
+		}
+		src, specItems, err := archiveIngester.Reindex(spec, data)
+		if err != nil {
+			return nil, fmt.Errorf("assetsdb: pack %s: reindex: %w", spec.ID, err)
+		}
+		sources = append(sources, src)
+		items = append(items, specItems...)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	dp := &assetsdb.DataPackage{Name: "assetsdb", Title: "assetsdb asset library", Version: packageVersion,
+		Created: now.UTC().Format(time.RFC3339), Licenses: []assetsdb.License{packageLicense},
+		SchemaVersion: 2, Sources: sources, Resources: items}
+	if err := writeDataPackage(outDir, dp); err != nil {
+		return nil, fmt.Errorf("assetsdb: write datapackage: %w", err)
+	}
+	return dp, nil
 }
 
 // Build fetches every pack in specs via the matching entry in ingesters, stores each pack's raw
@@ -79,11 +138,14 @@ func LoadManifest(path string) ([]format.PackSpec, error) {
 // as the package's Created time. It fails fast on the first pack that errors.
 func Build(
 	ctx context.Context,
-	specs []format.PackSpec,
-	ingesters map[string]format.Ingester,
+	specs []assetsdb.PackSpec,
+	ingesters map[string]assetsdb.Ingester,
 	outDir string,
 	now time.Time,
-) (*format.DataPackage, error) {
+) (*assetsdb.DataPackage, error) {
+	if err := validateSpecs(specs); err != nil {
+		return nil, err
+	}
 	if err := makeOutputDirs(outDir); err != nil {
 		return nil, err
 	}
@@ -95,22 +157,66 @@ func Build(
 
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 
-	dp := &format.DataPackage{
+	dp := &assetsdb.DataPackage{
 		Name:          "assetsdb",
 		Title:         "assetsdb asset library",
 		Version:       packageVersion,
 		Created:       now.UTC().Format(time.RFC3339),
-		Licenses:      []format.License{packageLicense},
-		SchemaVersion: 1,
+		Licenses:      []assetsdb.License{packageLicense},
+		SchemaVersion: 2,
 		Sources:       sources,
 		Resources:     items,
 	}
 
-	if err := format.Write(outDir, dp); err != nil {
+	if err := writeDataPackage(outDir, dp); err != nil {
 		return nil, fmt.Errorf("assetsdb: write datapackage: %w", err)
 	}
 
 	return dp, nil
+}
+
+func validateSpecs(specs []assetsdb.PackSpec) error {
+	for _, spec := range specs {
+		if !spec.Extraction.Valid() {
+			return fmt.Errorf("%w for pack %s: %q", ErrInvalidExtractionPolicy, spec.ID, spec.Extraction)
+		}
+	}
+	return nil
+}
+
+// writeDataPackage atomically serializes dataPackage into outDir/datapackage.json.
+func writeDataPackage(outDir string, dataPackage *assetsdb.DataPackage) error {
+	temporary, err := os.CreateTemp(outDir, ".datapackage-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary data package: %w", err)
+	}
+
+	temporaryPath := temporary.Name()
+	if err := encodeAndClose(temporary, dataPackage); err != nil {
+		_ = os.Remove(temporaryPath)
+		return err
+	}
+
+	finalPath := filepath.Join(outDir, "datapackage.json")
+	if err := os.Rename(temporaryPath, finalPath); err != nil {
+		_ = os.Remove(temporaryPath)
+		return fmt.Errorf("rename data package: %w", err)
+	}
+
+	return nil
+}
+
+func encodeAndClose(file io.WriteCloser, dataPackage *assetsdb.DataPackage) error {
+	if err := assetsdb.Encode(file, dataPackage); err != nil {
+		_ = file.Close()
+		return err
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close data package: %w", err)
+	}
+
+	return nil
 }
 
 // makeOutputDirs creates outDir and its sources and generated subdirectories.
@@ -128,14 +234,14 @@ func makeOutputDirs(outDir string) error {
 // and wraps the error at the first pack that fails, naming which pack failed.
 func ingestAll(
 	ctx context.Context,
-	specs []format.PackSpec,
-	ingesters map[string]format.Ingester,
+	specs []assetsdb.PackSpec,
+	ingesters map[string]assetsdb.Ingester,
 	outDir string,
-) ([]format.Source, []format.Item, error) {
-	sources := make([]format.Source, 0, len(specs))
+) ([]assetsdb.Source, []assetsdb.Item, error) {
+	sources := make([]assetsdb.Source, 0, len(specs))
 	// items is initialized non-nil so a zero-item build still marshals "resources": [] rather
 	// than the Frictionless-invalid "resources": null.
-	items := make([]format.Item, 0)
+	items := make([]assetsdb.Item, 0)
 
 	for _, spec := range specs {
 		src, specItems, err := ingestOne(ctx, spec, ingesters, outDir)
@@ -153,23 +259,23 @@ func ingestAll(
 // outDir/sources/<spec.ID>.zip.
 func ingestOne(
 	ctx context.Context,
-	spec format.PackSpec,
-	ingesters map[string]format.Ingester,
+	spec assetsdb.PackSpec,
+	ingesters map[string]assetsdb.Ingester,
 	outDir string,
-) (format.Source, []format.Item, error) {
+) (assetsdb.Source, []assetsdb.Item, error) {
 	in, ok := ingesters[spec.Source]
 	if !ok {
-		return format.Source{}, nil, fmt.Errorf("%w: %s", ErrUnknownSource, spec.Source)
+		return assetsdb.Source{}, nil, fmt.Errorf("%w: %s", ErrUnknownSource, spec.Source)
 	}
 
 	src, items, zipData, err := in.Ingest(ctx, spec)
 	if err != nil {
-		return format.Source{}, nil, fmt.Errorf("ingest: %w", err)
+		return assetsdb.Source{}, nil, fmt.Errorf("ingest: %w", err)
 	}
 
 	zipPath := filepath.Join(outDir, "sources", spec.ID+".zip")
 	if err := os.WriteFile(zipPath, zipData, 0o600); err != nil {
-		return format.Source{}, nil, fmt.Errorf("write %s: %w", zipPath, err)
+		return assetsdb.Source{}, nil, fmt.Errorf("write %s: %w", zipPath, err)
 	}
 
 	return src, items, nil

@@ -1,8 +1,37 @@
-// Package format defines the on-disk shape of an assetsdb database: a Frictionless Data Package
+// Package assetsdb defines the on-disk shape of an assetsdb database: a Frictionless Data Package
 // v2 hybrid JSON descriptor (datapackage.json), read/write access to it, extension-based asset
 // classification, filename tokenization for search, and the Ingester interface implemented by
 // each curated-pack importer. It contains no network code and no provider-specific logic.
-package format
+package assetsdb
+
+// ExtractionPolicy selects deterministic rules for turning an upstream archive into catalog
+// items. Each policy admits only records with upstream names that identify their contents.
+type ExtractionPolicy string
+
+const (
+	ExtractionSemanticFiles      ExtractionPolicy = "semantic-files"
+	ExtractionSemanticAtlasFiles ExtractionPolicy = "semantic-atlas-and-files"
+	ExtractionSemanticModels     ExtractionPolicy = "semantic-models"
+	ExtractionSemanticAudio      ExtractionPolicy = "semantic-audio"
+	ExtractionSemanticFonts      ExtractionPolicy = "semantic-fonts"
+)
+
+// Valid reports whether p is supported.
+func (p ExtractionPolicy) Valid() bool {
+	switch p {
+	case ExtractionSemanticFiles, ExtractionSemanticAtlasFiles, ExtractionSemanticModels,
+		ExtractionSemanticAudio, ExtractionSemanticFonts:
+		return true
+	default:
+		return false
+	}
+}
+
+// NamingEvidence records the upstream fact from which an item's semantic name was derived.
+type NamingEvidence struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
 
 // Kind enumerates the asset categories assetsdb classifies files into. There is deliberately no
 // catch-all "other" kind: files with an unrecognized or ignored extension are skipped by
@@ -63,6 +92,8 @@ type Source struct {
 	Origin string `json:"x_assetsdb:origin,omitempty"`
 	// Tags are theme/category tags carried over from the packs manifest.
 	Tags []string `json:"x_assetsdb:tags,omitempty"`
+	// ExtractionPolicy is the deterministic archive-selection policy used for this source.
+	ExtractionPolicy ExtractionPolicy `json:"x_assetsdb:extractionPolicy"`
 }
 
 // Item is a single catalogued asset file, stored as a Frictionless Data Resource in
@@ -81,9 +112,11 @@ type Item struct {
 	// suffix for atlas sub-sprites.
 	ID string `json:"x_assetsdb:id"`
 	// Source is the owning Source's name, resolvable via DB.SourceByID.
-	Source string   `json:"x_assetsdb:source"`
-	Kind   Kind     `json:"x_assetsdb:kind"`
-	Tokens []string `json:"x_assetsdb:tokens,omitempty"`
+	Source           string           `json:"x_assetsdb:source"`
+	Kind             Kind             `json:"x_assetsdb:kind"`
+	Tokens           []string         `json:"x_assetsdb:tokens,omitempty"`
+	ExtractionPolicy ExtractionPolicy `json:"x_assetsdb:extractionPolicy"`
+	NamingEvidence   NamingEvidence   `json:"x_assetsdb:namingEvidence"`
 	// Region is set only for an atlas sub-sprite; nil for a whole-file item.
 	Region *Region `json:"x_assetsdb:region,omitempty"`
 	// Provenance is RESERVED for phase-2 generated sources; see the Provenance type doc. Always

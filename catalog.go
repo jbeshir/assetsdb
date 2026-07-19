@@ -1,4 +1,4 @@
-package format
+package assetsdb
 
 import (
 	"crypto/sha256"
@@ -124,12 +124,13 @@ func capitalizeFirst(s string) string {
 // front of spec.Tags (deduplicated if it already appears) so the theme is searchable as a tag.
 func CuratedSource(spec PackSpec, license License) Source {
 	src := Source{
-		Name:   spec.ID,
-		Title:  spec.Name,
-		Path:   "sources/" + spec.ID + ".zip",
-		Type:   "curated",
-		Origin: spec.URL,
-		Tags:   foldTheme(spec.Theme, spec.Tags),
+		Name:             spec.ID,
+		Title:            spec.Name,
+		Path:             "sources/" + spec.ID + ".zip",
+		Type:             "curated",
+		Origin:           spec.URL,
+		Tags:             foldTheme(spec.Theme, spec.Tags),
+		ExtractionPolicy: spec.Extraction,
 	}
 	if license != (License{}) {
 		src.Licenses = []License{license}

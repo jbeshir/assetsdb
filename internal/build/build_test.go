@@ -9,16 +9,18 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/stretchr/testify/require"
 
-	"github.com/jbeshir/assetsdb/format"
+	"github.com/jbeshir/assetsdb"
 )
 
-// fakeIngester is a network-free format.Ingester stand-in for testing Build.
+// fakeIngester is a network-free assetsdb.Ingester stand-in for testing Build.
 type fakeIngester struct {
 	name  string
-	src   format.Source
-	items []format.Item
+	src   assetsdb.Source
+	items []assetsdb.Item
 	zip   []byte
 }
 
@@ -26,8 +28,25 @@ type fakeIngester struct {
 func (f *fakeIngester) Name() string { return f.name }
 
 // Ingest returns f's configured Source, Items, and zip bytes, ignoring its arguments.
-func (f *fakeIngester) Ingest(_ context.Context, _ format.PackSpec) (format.Source, []format.Item, []byte, error) {
-	return f.src, f.items, f.zip, nil
+func (f *fakeIngester) Ingest(_ context.Context, spec assetsdb.PackSpec) (assetsdb.Source, []assetsdb.Item, []byte, error) {
+	src, items := f.withExtraction(spec)
+	return src, items, f.zip, nil
+}
+
+func (f *fakeIngester) Reindex(spec assetsdb.PackSpec, _ []byte) (assetsdb.Source, []assetsdb.Item, error) {
+	src, items := f.withExtraction(spec)
+	return src, items, nil
+}
+
+func (f *fakeIngester) withExtraction(spec assetsdb.PackSpec) (assetsdb.Source, []assetsdb.Item) {
+	src := f.src
+	src.ExtractionPolicy = spec.Extraction
+	items := append([]assetsdb.Item(nil), f.items...)
+	for i := range items {
+		items[i].ExtractionPolicy = spec.Extraction
+		items[i].NamingEvidence = assetsdb.NamingEvidence{Kind: "test", Value: items[i].ID}
+	}
+	return src, items
 }
 
 // buildZip returns the bytes of a minimal ZIP archive containing files, for use as fake
@@ -51,23 +70,23 @@ func buildZip(t *testing.T, files map[string][]byte) []byte {
 func TestBuild(t *testing.T) {
 	dir := t.TempDir()
 
-	ingesters := map[string]format.Ingester{
+	ingesters := map[string]assetsdb.Ingester{
 		"fakeA": &fakeIngester{
 			name: "fakeA",
-			src: format.Source{
+			src: assetsdb.Source{
 				Name:     "pack-a",
 				Title:    "Pack A",
 				Path:     "sources/pack-a.zip",
-				Licenses: []format.License{{Name: "CC0-1.0"}},
+				Licenses: []assetsdb.License{{Name: "CC0-1.0"}},
 				Type:     "curated",
 			},
-			items: []format.Item{
+			items: []assetsdb.Item{
 				{
 					Name:   "pack-a-widget",
 					Path:   "a.png",
 					ID:     "assetsdb:pack-a/a.png",
 					Source: "pack-a",
-					Kind:   format.KindSprite2D,
+					Kind:   assetsdb.KindSprite2D,
 					Title:  "Alpha Widget",
 					Tokens: []string{"alpha", "widget"},
 				},
@@ -76,20 +95,20 @@ func TestBuild(t *testing.T) {
 		},
 		"fakeB": &fakeIngester{
 			name: "fakeB",
-			src: format.Source{
+			src: assetsdb.Source{
 				Name:     "pack-b",
 				Title:    "Pack B",
 				Path:     "sources/pack-b.zip",
-				Licenses: []format.License{{Name: "CC0-1.0"}},
+				Licenses: []assetsdb.License{{Name: "CC0-1.0"}},
 				Type:     "curated",
 			},
-			items: []format.Item{
+			items: []assetsdb.Item{
 				{
 					Name:   "pack-b-explosion",
 					Path:   "b.ogg",
 					ID:     "assetsdb:pack-b/b.ogg",
 					Source: "pack-b",
-					Kind:   format.KindAudio,
+					Kind:   assetsdb.KindAudio,
 					Title:  "Explosion Sound",
 					Tokens: []string{"explosion", "sound"},
 				},
@@ -98,9 +117,9 @@ func TestBuild(t *testing.T) {
 		},
 	}
 
-	specs := []format.PackSpec{
-		{ID: "pack-b", Name: "Pack B", Source: "fakeB"},
-		{ID: "pack-a", Name: "Pack A", Source: "fakeA"},
+	specs := []assetsdb.PackSpec{
+		{ID: "pack-b", Name: "Pack B", Source: "fakeB", Extraction: assetsdb.ExtractionSemanticFiles},
+		{ID: "pack-a", Name: "Pack A", Source: "fakeA", Extraction: assetsdb.ExtractionSemanticFiles},
 	}
 
 	now := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
@@ -120,7 +139,13 @@ func TestBuild(t *testing.T) {
 	require.FileExists(t, filepath.Join(dir, "sources", "pack-b.zip"))
 	require.DirExists(t, filepath.Join(dir, "generated"))
 
-	db, err := format.Read(dir)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.NotContains(t, entry.Name(), ".datapackage-")
+	}
+
+	db, err := assetsdb.Read(dir)
 	require.NoError(t, err)
 
 	hits := db.Search("explosion")
@@ -130,11 +155,22 @@ func TestBuild(t *testing.T) {
 
 func TestBuildUnknownSource(t *testing.T) {
 	dir := t.TempDir()
-	specs := []format.PackSpec{{ID: "x", Source: "missing"}}
+	specs := []assetsdb.PackSpec{{ID: "x", Source: "missing", Extraction: assetsdb.ExtractionSemanticFiles}}
 
-	_, err := Build(t.Context(), specs, map[string]format.Ingester{}, dir, time.Now())
+	_, err := Build(t.Context(), specs, map[string]assetsdb.Ingester{}, dir, time.Now())
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrUnknownSource)
+}
+
+func TestReindexUsesExistingArchive(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sources"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sources", "pack.zip"), buildZip(t, map[string][]byte{"door.png": []byte("door")}), 0o600))
+	in := &fakeIngester{name: "fake", src: assetsdb.Source{Name: "pack"}, items: []assetsdb.Item{{ID: "assetsdb:pack/door.png"}}}
+	dp, err := Reindex(t.Context(), []assetsdb.PackSpec{{ID: "pack", Source: "fake", Extraction: assetsdb.ExtractionSemanticFiles}}, map[string]assetsdb.Ingester{"fake": in}, dir, time.Now())
+	require.NoError(t, err)
+	require.Len(t, dp.Resources, 1)
+	require.FileExists(t, filepath.Join(dir, "sources", "pack.zip"))
 }
 
 func TestLoadManifest(t *testing.T) {
@@ -149,6 +185,7 @@ packs:
     theme: test
     tags: [alpha, beta]
     license: CC0-1.0
+    extraction: semantic-atlas-and-files
 `
 	require.NoError(t, os.WriteFile(manifestPath, []byte(content), 0o600))
 
@@ -160,10 +197,70 @@ packs:
 	require.Equal(t, "kenney", specs[0].Source)
 	require.Equal(t, []string{"alpha", "beta"}, specs[0].Tags)
 	require.Equal(t, "CC0-1.0", specs[0].License)
+	require.Equal(t, assetsdb.ExtractionSemanticAtlasFiles, specs[0].Extraction)
+}
+
+func TestLoadManifestRejectsMissingAndUnknownExtraction(t *testing.T) {
+	for _, extraction := range []string{"", "magic"} {
+		t.Run(extraction, func(t *testing.T) {
+			manifestPath := filepath.Join(t.TempDir(), "packs.yaml")
+			content := "packs:\n  - id: bad\n    extraction: " + extraction + "\n"
+			require.NoError(t, os.WriteFile(manifestPath, []byte(content), 0o600))
+			_, err := LoadManifest(manifestPath)
+			require.ErrorIs(t, err, ErrInvalidExtractionPolicy)
+		})
+	}
+}
+
+func TestBuildAndReindexRejectInvalidExtraction(t *testing.T) {
+	specs := []assetsdb.PackSpec{{ID: "bad", Source: "fixture"}}
+	_, err := Build(t.Context(), specs, nil, t.TempDir(), time.Now())
+	require.ErrorIs(t, err, ErrInvalidExtractionPolicy)
+	_, err = Reindex(t.Context(), specs, nil, t.TempDir(), time.Now())
+	require.ErrorIs(t, err, ErrInvalidExtractionPolicy)
+}
+
+func TestAllExtractionPoliciesAreAccepted(t *testing.T) {
+	for _, extraction := range []assetsdb.ExtractionPolicy{
+		assetsdb.ExtractionSemanticFiles, assetsdb.ExtractionSemanticAtlasFiles,
+		assetsdb.ExtractionSemanticModels, assetsdb.ExtractionSemanticAudio,
+		assetsdb.ExtractionSemanticFonts,
+	} {
+		manifestPath := filepath.Join(t.TempDir(), "packs.yaml")
+		content := "packs:\n  - id: good\n    extraction: " + string(extraction) + "\n"
+		require.NoError(t, os.WriteFile(manifestPath, []byte(content), 0o600))
+		_, err := LoadManifest(manifestPath)
+		require.NoError(t, err)
+	}
 }
 
 func TestLoadManifestRealPacksYAML(t *testing.T) {
 	specs, err := LoadManifest("../../packs.yaml")
 	require.NoError(t, err)
-	require.Len(t, specs, 10)
+	require.GreaterOrEqual(t, len(specs), 10)
+
+	ids := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		ids[spec.ID] = true
+	}
+
+	require.True(t, ids["kaykit-furniture-bits"])
+	require.True(t, ids["kaykit-city-builder-bits"])
+	require.Len(t, specs, 177)
+
+	data, err := os.ReadFile("../../removed-packs.yaml")
+	require.NoError(t, err)
+	var removed struct {
+		Removed []struct {
+			ID            string `yaml:"id"`
+			RemovalReason string `yaml:"removalReason"`
+		} `yaml:"removedPacks"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &removed))
+	require.Len(t, removed.Removed, 44)
+	for _, pack := range removed.Removed {
+		require.False(t, ids[pack.ID], "active and removed pack %s", pack.ID)
+		require.NotEmpty(t, pack.RemovalReason)
+	}
+	require.Equal(t, 221, len(specs)+len(removed.Removed))
 }

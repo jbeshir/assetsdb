@@ -7,21 +7,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jbeshir/assetsdb/format"
+	"github.com/jbeshir/assetsdb"
 	"github.com/stretchr/testify/require"
 )
 
-const fixturePath = "../../../format/testdata/kaykit-min.zip"
+const fixturePath = "../../../testdata/kaykit-min.zip"
 
-func testSpec() format.PackSpec {
-	return format.PackSpec{
-		ID:      "kaykit-furniture-bits",
-		Name:    "KayKit Furniture Bits",
-		Source:  "kaykit",
-		URL:     "https://github.com/KayKit-Game-Assets/KayKit-Furniture-Bits-1.0",
-		Theme:   "furniture",
-		Tags:    []string{"furniture", "interior"},
-		License: "CC0-1.0",
+func testSpec() assetsdb.PackSpec {
+	return assetsdb.PackSpec{
+		ID:         "kaykit-furniture-bits",
+		Name:       "KayKit Furniture Bits",
+		Source:     "kaykit",
+		URL:        "https://github.com/KayKit-Game-Assets/KayKit-Furniture-Bits-1.0",
+		Theme:      "furniture",
+		Tags:       []string{"furniture", "interior"},
+		License:    "CC0-1.0",
+		Extraction: assetsdb.ExtractionSemanticModels,
 	}
 }
 
@@ -40,9 +41,9 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 	// The fixture has 2 glTF models (armchair, chair_A) and the same texture PNG duplicated
 	// under both a gltf/ and a texture/ directory; their .bin buffers, LICENSE.txt, and the
 	// directory entries themselves are all not classifiable/skippable and must not appear.
-	require.Len(t, items, 4)
+	require.Len(t, items, 2)
 
-	byPath := make(map[string]format.Item, len(items))
+	byPath := make(map[string]assetsdb.Item, len(items))
 	for _, it := range items {
 		byPath[it.Path] = it
 	}
@@ -54,7 +55,7 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 
 	armchair, ok := byPath[armchairPath]
 	require.True(t, ok, "expected model3d item for armchair.gltf")
-	require.Equal(t, format.KindModel3D, armchair.Kind)
+	require.Equal(t, assetsdb.KindModel3D, armchair.Kind)
 	require.Equal(t, "gltf", armchair.Format)
 	require.Equal(t, []string{"armchair"}, armchair.Tokens)
 	require.Equal(t, "Armchair", armchair.Title)
@@ -63,16 +64,17 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 
 	chair, ok := byPath[chairPath]
 	require.True(t, ok, "expected model3d item for chair_A.gltf")
-	require.Equal(t, format.KindModel3D, chair.Kind)
+	require.Equal(t, assetsdb.KindModel3D, chair.Kind)
 	require.Equal(t, "Chair A", chair.Title)
 
-	gltfTex, ok := byPath[gltfTexPath]
-	require.True(t, ok, "expected sprite2d item for gltf/furniturebits_texture.png")
-	require.Equal(t, format.KindSprite2D, gltfTex.Kind)
-
-	texTex, ok := byPath[texTexPath]
-	require.True(t, ok, "expected sprite2d item for texture/furniturebits_texture.png")
-	require.Equal(t, format.KindSprite2D, texTex.Kind)
+	_, ok = byPath[gltfTexPath]
+	require.False(t, ok, "model policy must omit material textures")
+	_, ok = byPath[texTexPath]
+	require.False(t, ok, "model policy must omit material textures")
+	for _, item := range items {
+		require.Equal(t, spec.Extraction, item.ExtractionPolicy)
+		require.NotEmpty(t, item.NamingEvidence.Value)
+	}
 
 	// Skipped files must not produce items under any path.
 	for p := range byPath {
@@ -135,8 +137,8 @@ func TestWalkZip_DedupsSiblingModelFormats(t *testing.T) {
 }
 
 // itemsMatchingPath returns the items whose Path contains sub.
-func itemsMatchingPath(items []format.Item, sub string) []format.Item {
-	var out []format.Item
+func itemsMatchingPath(items []assetsdb.Item, sub string) []assetsdb.Item {
+	var out []assetsdb.Item
 	for _, it := range items {
 		if strings.Contains(it.Path, sub) {
 			out = append(out, it)
@@ -170,7 +172,7 @@ func TestWalkZip_ModelFormatDedupHasNoCollisions(t *testing.T) {
 
 	seen := make(map[string]string)
 	for _, it := range items {
-		if it.Kind != format.KindModel3D {
+		if it.Kind != assetsdb.KindModel3D {
 			continue
 		}
 		key := assetKey(it.Path)
@@ -206,6 +208,7 @@ func TestWalkZip_ItemsSortedByID(t *testing.T) {
 
 func TestWalkZip_NameSlugsAreUniqueOnCollision(t *testing.T) {
 	spec := testSpec()
+	spec.Extraction = assetsdb.ExtractionSemanticFiles
 	items, err := walkZip(spec, loadFixture(t))
 	require.NoError(t, err)
 

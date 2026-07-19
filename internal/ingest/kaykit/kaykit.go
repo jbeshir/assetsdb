@@ -1,4 +1,4 @@
-// Package kaykit implements format.Ingester for KayKit-Game-Assets GitHub repositories: it
+// Package kaykit implements assetsdb.Ingester for KayKit-Game-Assets GitHub repositories: it
 // downloads a pack's codeload ZIP archive, walks it to catalog 3D model and texture assets while
 // deduplicating redundant model formats, and reports every pack's license from its PackSpec (in
 // practice CC0-1.0: KayKit's LICENSE.txt is manually confirmed CC0 even though GitHub's API
@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jbeshir/assetsdb/format"
+	"github.com/jbeshir/assetsdb"
 )
 
 // defaultOwner is the GitHub account KayKit packs are published under when a PackSpec.URL names
@@ -42,7 +42,7 @@ var ErrDownloadFailed = errors.New("kaykit: archive download failed")
 // timeout so a stalled kenney/codeload connection cannot hang a build indefinitely.
 var defaultHTTPClient = &http.Client{Timeout: 60 * time.Second}
 
-// Ingester implements format.Ingester for KayKit-Game-Assets GitHub repositories.
+// Ingester implements assetsdb.Ingester for KayKit-Game-Assets GitHub repositories.
 type Ingester struct {
 	// HTTPClient performs all network requests; defaultHTTPClient is used when nil.
 	HTTPClient *http.Client
@@ -55,27 +55,38 @@ func (i *Ingester) Name() string {
 
 // Ingest fetches spec's KayKit GitHub repository archive and returns its Source metadata, its
 // Items, and the raw ZIP bytes to persist verbatim under sources/<id>.zip.
-func (i *Ingester) Ingest(ctx context.Context, spec format.PackSpec) (format.Source, []format.Item, []byte, error) {
+func (i *Ingester) Ingest(
+	ctx context.Context, spec assetsdb.PackSpec,
+) (assetsdb.Source, []assetsdb.Item, []byte, error) {
 	owner, repo, err := parseOwnerRepo(spec.URL)
 	if err != nil {
-		return format.Source{}, nil, nil, err
+		return assetsdb.Source{}, nil, nil, err
 	}
 
 	branch := i.fetchDefaultBranch(ctx, owner, repo)
 
 	data, err := i.downloadZip(ctx, owner, repo, branch)
 	if err != nil {
-		return format.Source{}, nil, nil, fmt.Errorf("kaykit: download %s/%s: %w", owner, repo, err)
+		return assetsdb.Source{}, nil, nil, fmt.Errorf("kaykit: download %s/%s: %w", owner, repo, err)
 	}
 
 	items, err := walkZip(spec, data)
 	if err != nil {
-		return format.Source{}, nil, nil, fmt.Errorf("kaykit: walk %s/%s: %w", owner, repo, err)
+		return assetsdb.Source{}, nil, nil, fmt.Errorf("kaykit: walk %s/%s: %w", owner, repo, err)
 	}
 
-	src := format.CuratedSource(spec, format.LicenseForSPDX(spec.License))
+	src := assetsdb.CuratedSource(spec, assetsdb.LicenseForSPDX(spec.License))
 
 	return src, items, data, nil
+}
+
+// Reindex applies the pure ZIP walker to an existing archive.
+func (i *Ingester) Reindex(spec assetsdb.PackSpec, data []byte) (assetsdb.Source, []assetsdb.Item, error) {
+	items, err := walkZip(spec, data)
+	if err != nil {
+		return assetsdb.Source{}, nil, err
+	}
+	return assetsdb.CuratedSource(spec, assetsdb.LicenseForSPDX(spec.License)), items, nil
 }
 
 // client returns the HTTP client to use for requests, falling back to defaultHTTPClient.
@@ -199,23 +210,23 @@ var modelFormatPriority = map[string]int{
 type candidate struct {
 	file *zip.File
 	path string
-	kind format.Kind
+	kind assetsdb.Kind
 }
 
 // walkZip is the pure, network-free core of this ingester: it classifies and deduplicates every
 // file in an already-downloaded KayKit codeload archive into a sorted, deterministic Item slice.
 // spec.ID namespaces each item's canonical id and Frictionless name.
-func walkZip(spec format.PackSpec, data []byte) ([]format.Item, error) {
+func walkZip(spec assetsdb.PackSpec, data []byte) ([]assetsdb.Item, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, fmt.Errorf("kaykit: open zip: %w", err)
 	}
 
-	candidates := dedupModelFormats(collectCandidates(zr.File))
+	candidates := dedupModelFormats(collectPolicyCandidates(spec, zr.File))
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].path < candidates[j].path })
 
-	items := make([]format.Item, 0, len(candidates))
-	names := format.NewNameAllocator()
+	items := make([]assetsdb.Item, 0, len(candidates))
+	names := assetsdb.NewNameAllocator()
 	for _, c := range candidates {
 		item, ierr := buildItem(spec, c, names)
 		if ierr != nil {
@@ -227,16 +238,16 @@ func walkZip(spec format.PackSpec, data []byte) ([]format.Item, error) {
 	return items, nil
 }
 
-// collectCandidates classifies every regular file in files, dropping directories, files Classify
-// doesn't recognize, and KayKit's known preview/marketing images.
-func collectCandidates(files []*zip.File) []candidate {
+// collectPolicyCandidates classifies regular files and applies the pack's extraction policy.
+func collectPolicyCandidates(spec assetsdb.PackSpec, files []*zip.File) []candidate {
 	out := make([]candidate, 0, len(files))
 	for _, f := range files {
 		if f.FileInfo().IsDir() || isPreviewImage(f.Name) {
 			continue
 		}
-		kind, ok := format.Classify(f.Name)
-		if !ok {
+		kind, ok := assetsdb.Classify(f.Name)
+		if !ok || !assetsdb.PolicyAllowsKind(spec.Extraction, kind) ||
+			!assetsdb.SemanticUpstreamNameForSpec(spec, f.Name) {
 			continue
 		}
 		out = append(out, candidate{file: f, path: f.Name, kind: kind})
@@ -294,7 +305,7 @@ func dedupModelFormats(candidates []candidate) []candidate {
 // candidateModelPriority returns c's model-format priority and whether it participates in
 // per-asset dedup at all.
 func candidateModelPriority(c candidate) (priority int, participates bool) {
-	if c.kind != format.KindModel3D {
+	if c.kind != assetsdb.KindModel3D {
 		return 0, false
 	}
 	pri, ok := modelFormatPriority[strings.ToLower(path.Ext(c.path))]
@@ -362,32 +373,34 @@ func assetKey(p string) string {
 // tokens, and slug derive from the format-agnostic logical base, so a binary-glTF double
 // extension never leaks a stray "gltf"/"glb" into them; for other files the plain basename is
 // used.
-func buildItem(spec format.PackSpec, c candidate, names *format.NameAllocator) (format.Item, error) {
+func buildItem(spec assetsdb.PackSpec, c candidate, names *assetsdb.NameAllocator) (assetsdb.Item, error) {
 	rc, err := c.file.Open()
 	if err != nil {
-		return format.Item{}, fmt.Errorf("open: %w", err)
+		return assetsdb.Item{}, fmt.Errorf("open: %w", err)
 	}
 	defer func() { _ = rc.Close() }()
 
 	contents, err := io.ReadAll(rc)
 	if err != nil {
-		return format.Item{}, fmt.Errorf("read: %w", err)
+		return assetsdb.Item{}, fmt.Errorf("read: %w", err)
 	}
 
 	base, tokens := titleBaseAndTokens(c)
 
-	return format.Item{
-		Name:      names.Allocate(spec.ID + "-" + format.Slugify(base)),
-		Path:      c.path,
-		Format:    format.ExtNoDot(c.path),
-		MediaType: format.MediaType(c.path),
-		Bytes:     int64(len(contents)),
-		Hash:      format.Hash(contents),
-		Title:     format.Title(base),
-		ID:        format.ItemID(spec.ID, c.path, ""),
-		Source:    spec.ID,
-		Kind:      c.kind,
-		Tokens:    tokens,
+	return assetsdb.Item{
+		Name:             names.Allocate(spec.ID + "-" + assetsdb.Slugify(base)),
+		Path:             c.path,
+		Format:           assetsdb.ExtNoDot(c.path),
+		MediaType:        assetsdb.MediaType(c.path),
+		Bytes:            int64(len(contents)),
+		Hash:             assetsdb.Hash(contents),
+		Title:            assetsdb.Title(base),
+		ID:               assetsdb.ItemID(spec.ID, c.path, ""),
+		Source:           spec.ID,
+		Kind:             c.kind,
+		Tokens:           tokens,
+		ExtractionPolicy: spec.Extraction,
+		NamingEvidence:   assetsdb.NamingEvidence{Kind: "file-basename", Value: base},
 	}, nil
 }
 
@@ -395,11 +408,11 @@ func buildItem(spec format.PackSpec, c candidate, names *format.NameAllocator) (
 // its format-agnostic logical base (all model extensions stripped) so a double extension does not
 // leak a format token; any other file keeps the plain basename and full-path tokenization.
 func titleBaseAndTokens(c candidate) (base string, tokens []string) {
-	if c.kind == format.KindModel3D {
+	if c.kind == assetsdb.KindModel3D {
 		lb := logicalModelBase(c.path)
-		return lb, format.Tokenize(path.Join(path.Dir(c.path), lb))
+		return lb, assetsdb.Tokenize(path.Join(path.Dir(c.path), lb))
 	}
-	return basenameNoExt(c.path), format.Tokenize(c.path)
+	return basenameNoExt(c.path), assetsdb.Tokenize(c.path)
 }
 
 // basenameNoExt returns p's final path segment with its extension stripped.
@@ -408,5 +421,5 @@ func basenameNoExt(p string) string {
 	return strings.TrimSuffix(b, path.Ext(b))
 }
 
-// ensure Ingester satisfies format.Ingester at compile time.
-var _ format.Ingester = (*Ingester)(nil)
+// ensure Ingester satisfies assetsdb.Ingester at compile time.
+var _ assetsdb.Ingester = (*Ingester)(nil)

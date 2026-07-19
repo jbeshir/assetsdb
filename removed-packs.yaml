@@ -1,0 +1,356 @@
+# Packs excluded because deterministic ingestion cannot identify any item by content.
+# Source metadata is retained here so removals remain auditable and reversible.
+
+removedPacks:
+  - id: kenney-tiny-farm
+    name: "Kenney Tiny Farm"
+    source: kenney
+    url: https://kenney.nl/assets/tiny-farm
+    theme: 2d
+    tags: [2d, tiny]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-tiny-town
+    name: "Kenney Tiny Town"
+    source: kenney
+    url: https://kenney.nl/assets/tiny-town
+    theme: 2d
+    tags: [2d, tiny]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-minimap-pack
+    name: "Kenney Minimap Pack"
+    source: kenney
+    url: https://kenney.nl/assets/minimap-pack
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-roguelike-characters
+    name: "Kenney Roguelike Characters"
+    source: kenney
+    url: https://kenney.nl/assets/roguelike-characters
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-ui-pack-pixel-adventure
+    name: "Kenney UI Pack - Pixel Adventure"
+    source: kenney
+    url: https://kenney.nl/assets/ui-pack-pixel-adventure
+    theme: 2d
+    tags: [2d, ui-pack]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-pico-8-platformer
+    name: "Kenney Pico-8 Platformer"
+    source: kenney
+    url: https://kenney.nl/assets/pico-8-platformer
+    theme: 2d
+    tags: [2d, pico-8]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-pattern-pack
+    name: "Kenney Pattern Pack"
+    source: kenney
+    url: https://kenney.nl/assets/pattern-pack
+    theme: textures
+    tags: [textures, patterns]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-pattern-pack-pixel
+    name: "Kenney Pattern Pack Pixel"
+    source: kenney
+    url: https://kenney.nl/assets/pattern-pack-pixel
+    theme: textures
+    tags: [textures, patterns]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-cursor-pixel-pack
+    name: "Kenney Cursor Pixel Pack"
+    source: kenney
+    url: https://kenney.nl/assets/cursor-pixel-pack
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After mandatory artifact and unresolved-item exclusions, no archive item has an upstream object/action-identifying name; the pack would yield zero insertable semantic assets."
+  - id: kenney-input-prompts-pixel-1-bit
+    name: "Kenney Input Prompts Pixel 1-Bit"
+    source: kenney
+    url: https://kenney.nl/assets/input-prompts-pixel-1-bit
+    theme: 2d
+    tags: [2d, input-prompts]
+    license: CC0-1.0
+    removalReason: "After mandatory artifact and unresolved-item exclusions, no archive item has an upstream object/action-identifying name; the pack would yield zero insertable semantic assets."
+  - id: kenney-monochrome-pirates
+    name: "Kenney Monochrome Pirates"
+    source: kenney
+    url: https://kenney.nl/assets/monochrome-pirates
+    theme: 2d
+    tags: [2d, monochrome]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-pixel-platformer
+    name: "Kenney Pixel Platformer"
+    source: kenney
+    url: https://kenney.nl/assets/pixel-platformer
+    theme: 2d
+    tags: [2d, pixel-platformer]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-pixel-platformer-food-expansion
+    name: "Kenney Pixel Platformer Food Expansion"
+    source: kenney
+    url: https://kenney.nl/assets/pixel-platformer-food-expansion
+    theme: 2d
+    tags: [2d, pixel-platformer]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-pico-8-city
+    name: "Kenney Pico-8 City"
+    source: kenney
+    url: https://kenney.nl/assets/pico-8-city
+    theme: 2d
+    tags: [2d, pico-8]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-tiny-battle
+    name: "Kenney Tiny Battle"
+    source: kenney
+    url: https://kenney.nl/assets/tiny-battle
+    theme: 2d
+    tags: [2d, tiny]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-tiny-ski
+    name: "Kenney Tiny Ski"
+    source: kenney
+    url: https://kenney.nl/assets/tiny-ski
+    theme: 2d
+    tags: [2d, tiny]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-pixel-platformer-industrial-expansion
+    name: "Kenney Pixel Platformer Industrial Expansion"
+    source: kenney
+    url: https://kenney.nl/assets/pixel-platformer-industrial-expansion
+    theme: 2d
+    tags: [2d, pixel-platformer]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-pattern-pack-lines
+    name: "Kenney Pattern Pack Lines"
+    source: kenney
+    url: https://kenney.nl/assets/pattern-pack-lines
+    theme: textures
+    tags: [textures, patterns]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-pixel-platformer-farm-expansion
+    name: "Kenney Pixel Platformer Farm Expansion"
+    source: kenney
+    url: https://kenney.nl/assets/pixel-platformer-farm-expansion
+    theme: 2d
+    tags: [2d, pixel-platformer]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-tiny-dungeon
+    name: "Kenney Tiny Dungeon"
+    source: kenney
+    url: https://kenney.nl/assets/tiny-dungeon
+    theme: 2d
+    tags: [2d, tiny]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-pixel-platformer-blocks
+    name: "Kenney Pixel Platformer Blocks"
+    source: kenney
+    url: https://kenney.nl/assets/pixel-platformer-blocks
+    theme: 2d
+    tags: [2d, pixel-platformer]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-1-bit-pack
+    name: "Kenney 1-Bit Pack"
+    source: kenney
+    url: https://kenney.nl/assets/1-bit-pack
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After mandatory artifact and unresolved-item exclusions, no archive item has an upstream object/action-identifying name; the pack would yield zero insertable semantic assets."
+  - id: kenney-1-bit-platformer-pack
+    name: "Kenney 1-Bit Platformer Pack"
+    source: kenney
+    url: https://kenney.nl/assets/1-bit-platformer-pack
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After mandatory artifact and unresolved-item exclusions, no archive item has an upstream object/action-identifying name; the pack would yield zero insertable semantic assets."
+  - id: kenney-micro-roguelike
+    name: "Kenney Micro Roguelike"
+    source: kenney
+    url: https://kenney.nl/assets/micro-roguelike
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-input-prompts-pixel
+    name: "Kenney Input Prompts Pixel"
+    source: kenney
+    url: https://kenney.nl/assets/input-prompts-pixel
+    theme: 2d
+    tags: [2d, input-prompts]
+    license: CC0-1.0
+    removalReason: "After mandatory artifact and unresolved-item exclusions, no archive item has an upstream object/action-identifying name; the pack would yield zero insertable semantic assets."
+  - id: kenney-pixel-line-platformer
+    name: "Kenney Pixel Line Platformer"
+    source: kenney
+    url: https://kenney.nl/assets/pixel-line-platformer
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-prototype-textures
+    name: "Kenney Prototype Textures"
+    source: kenney
+    url: https://kenney.nl/assets/prototype-textures
+    theme: textures
+    tags: [textures]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-rpg-urban-pack
+    name: "Kenney RPG Urban Pack"
+    source: kenney
+    url: https://kenney.nl/assets/rpg-urban-pack
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-platformer-pack-industrial
+    name: "Kenney Platformer Pack Industrial"
+    source: kenney
+    url: https://kenney.nl/assets/platformer-pack-industrial
+    theme: 2d
+    tags: [2d, platformer-pack]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-sci-fi-rts
+    name: "Kenney Sci-Fi RTS"
+    source: kenney
+    url: https://kenney.nl/assets/sci-fi-rts
+    theme: 2d
+    tags: [2d, rts]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-platformer-pack-medieval
+    name: "Kenney Platformer Pack Medieval"
+    source: kenney
+    url: https://kenney.nl/assets/platformer-pack-medieval
+    theme: 2d
+    tags: [2d, platformer-pack]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-tower-defense-top-down
+    name: "Kenney Tower Defense (Top-Down)"
+    source: kenney
+    url: https://kenney.nl/assets/tower-defense-top-down
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-generic-items
+    name: "Kenney Generic Items"
+    source: kenney
+    url: https://kenney.nl/assets/generic-items
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After mandatory artifact and unresolved-item exclusions, no archive item has an upstream object/action-identifying name; the pack would yield zero insertable semantic assets."
+  - id: kenney-map-pack
+    name: "Kenney Map Pack"
+    source: kenney
+    url: https://kenney.nl/assets/map-pack
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-roguelike-modern-city
+    name: "Kenney Roguelike Modern City"
+    source: kenney
+    url: https://kenney.nl/assets/roguelike-modern-city
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-roguelike-caves-dungeons
+    name: "Kenney Roguelike Caves & Dungeons"
+    source: kenney
+    url: https://kenney.nl/assets/roguelike-caves-dungeons
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-roguelike-indoors
+    name: "Kenney Roguelike Indoors"
+    source: kenney
+    url: https://kenney.nl/assets/roguelike-indoors
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-roguelike-rpg-pack
+    name: "Kenney Roguelike/RPG pack"
+    source: kenney
+    url: https://kenney.nl/assets/roguelike-rpg-pack
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-isometric-tiles-buildings
+    name: "Kenney Isometric Tiles Buildings"
+    source: kenney
+    url: https://kenney.nl/assets/isometric-tiles-buildings
+    theme: 2d
+    tags: [2d, isometric-tiles]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-isometric-tiles-city
+    name: "Kenney Isometric Tiles City"
+    source: kenney
+    url: https://kenney.nl/assets/isometric-tiles-city
+    theme: 2d
+    tags: [2d, isometric-tiles]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-isometric-tiles-landscape
+    name: "Kenney Isometric Tiles Landscape"
+    source: kenney
+    url: https://kenney.nl/assets/isometric-tiles-landscape
+    theme: 2d
+    tags: [2d, isometric-tiles]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
+  - id: kenney-construct-game-sources
+    name: "Kenney Construct Game Sources"
+    source: kenney
+    url: https://kenney.nl/assets/construct-game-sources
+    theme: other
+    tags: [other]
+    license: CC0-1.0
+    removalReason: "After mandatory artifact and unresolved-item exclusions, no archive item has an upstream object/action-identifying name; the pack would yield zero insertable semantic assets."
+  - id: kenney-rpg-base
+    name: "Kenney RPG Base"
+    source: kenney
+    url: https://kenney.nl/assets/rpg-base
+    theme: 2d
+    tags: [2d]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, aggregate sheets, and redundant representations, at least one distinct usable asset still has only a generic/theme/number name and no allowed upstream object-identifying mapping."
+  - id: kenney-platformer-art-pixel
+    name: "Kenney Platformer Art Pixel"
+    source: kenney
+    url: https://kenney.nl/assets/platformer-art-pixel
+    theme: 2d
+    tags: [2d, platformer-pack]
+    license: CC0-1.0
+    removalReason: "After excluding packaging, sheets, redundancy, and unresolved files, this pack yields no deterministically object-named asset. Its usable records are only numbered tiles/patterns or theme/format-level artwork, so the pack must be removed."
