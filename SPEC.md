@@ -64,6 +64,7 @@ FINDINGS-frictionless.md §4's naming-clash note.
 | `x_assetsdb:type` | `Type` | yes | custom | `"curated"` (v1) or `"generated"` (reserved, §5). |
 | `x_assetsdb:origin` | `Origin` | no | custom | Upstream pack page URL (Kenney) or repo URL (KayKit). |
 | `x_assetsdb:tags` | `Tags` | no | custom (loosely DCAT `dcat:keyword`) | Theme/tag list carried over from the manifest. |
+| `x_assetsdb:extractionPolicy` | `ExtractionPolicy` | yes | custom | Deterministic semantic extraction policy selected by the manifest. |
 
 ### 2.3 Item entry (`resources[]`, Go type `Item`)
 
@@ -81,6 +82,8 @@ FINDINGS-frictionless.md §4's naming-clash note.
 | `x_assetsdb:source` | `Source` | yes | custom | Owning `Source.Name`, resolvable via `DB.SourceByID`. |
 | `x_assetsdb:kind` | `Kind` | yes | custom | One of `sprite2d` \| `model3d` \| `audio` \| `font` (`assetsdb.Kind`). |
 | `x_assetsdb:tokens` | `Tokens` | no | custom | Lowercase, de-duplicated search tokens from `assetsdb.Tokenize`. |
+| `x_assetsdb:extractionPolicy` | `ExtractionPolicy` | yes | custom | Policy which admitted this item. |
+| `x_assetsdb:namingEvidence` | `NamingEvidence` | yes | custom | Upstream `file-basename` or `atlas-record` value used to name it. |
 | `x_assetsdb:region` | `Region` | no | custom | `{x,y,width,height}` atlas sub-region; present only for a Kenney atlas sub-sprite, absent for a whole-file item. |
 | `x_assetsdb:provenance` | `Provenance` | no (always `null` in v1) | custom | RESERVED for phase-2; see §5. Every curated item leaves this `null`. |
 
@@ -119,14 +122,14 @@ These are two different identifiers on the same `Item` and must not be conflated
 {
   "name": "assetsdb",
   "title": "assetsdb asset library",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "created": "2026-07-18T00:00:00Z",
   "licenses": [
     { "name": "CC0-1.0",
       "path": "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
       "title": "Creative Commons Zero v1.0 Universal" }
   ],
-  "x_assetsdb:schemaVersion": 1,
+  "x_assetsdb:schemaVersion": 2,
   "x_assetsdb:sources": [
     {
       "name": "kenney-space-shooter-extension",
@@ -137,7 +140,8 @@ These are two different identifiers on the same `Item` and must not be conflated
         "title": "Creative Commons Zero v1.0 Universal" } ],
       "x_assetsdb:type": "curated",
       "x_assetsdb:origin": "https://kenney.nl/assets/space-shooter-extension",
-      "x_assetsdb:tags": ["space", "shooter", "2d"]
+      "x_assetsdb:tags": ["space", "shooter", "2d"],
+      "x_assetsdb:extractionPolicy": "semantic-atlas-and-files"
     }
   ],
   "resources": [
@@ -151,6 +155,11 @@ These are two different identifiers on the same `Item` and must not be conflated
       "x_assetsdb:source": "kenney-space-shooter-extension",
       "x_assetsdb:kind": "sprite2d",
       "x_assetsdb:tokens": ["space", "building", "001", "1"],
+      "x_assetsdb:extractionPolicy": "semantic-atlas-and-files",
+      "x_assetsdb:namingEvidence": {
+        "kind": "atlas-record",
+        "value": "spaceBuilding_001.png"
+      },
       "x_assetsdb:region": { "x": 0, "y": 0, "width": 34, "height": 44 },
       "x_assetsdb:provenance": null
     }
@@ -160,7 +169,8 @@ These are two different identifiers on the same `Item` and must not be conflated
 
 ## 3. Schema versioning
 
-`x_assetsdb:schemaVersion` is `1` for everything described in this document. It versions the
+`x_assetsdb:schemaVersion` is `2` for everything described in this document. Version 2 requires
+the extraction policy and upstream naming evidence on curated sources/items. It versions the
 **on-disk shape** (field names, required-ness, layout) — independent of `version`, which is a
 SemVer of the package's *content* (e.g. bumps when packs are added/removed/rebuilt). A future
 breaking change to the JSON shape or layout bumps `schemaVersion`; `assetsdb.Read` may use it to

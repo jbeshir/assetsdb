@@ -44,8 +44,40 @@ func Read(root string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateDataPackage(dataPackage); err != nil {
+		return nil, err
+	}
 
 	return indexDataPackage(canonicalRoot, dataPackage), nil
+}
+
+func validateDataPackage(dp *DataPackage) error {
+	if dp.SchemaVersion > 2 {
+		return fmt.Errorf("assetsdb: unsupported schema version %d", dp.SchemaVersion)
+	}
+	if dp.SchemaVersion < 2 {
+		return nil
+	}
+
+	policies := make(map[string]ExtractionPolicy, len(dp.Sources))
+	for _, source := range dp.Sources {
+		if !source.ExtractionPolicy.Valid() {
+			return fmt.Errorf("assetsdb: source %q has invalid extraction policy %q", source.Name, source.ExtractionPolicy)
+		}
+		policies[source.Name] = source.ExtractionPolicy
+	}
+	for _, item := range dp.Resources {
+		if !item.ExtractionPolicy.Valid() {
+			return fmt.Errorf("assetsdb: item %q has invalid extraction policy %q", item.ID, item.ExtractionPolicy)
+		}
+		if item.NamingEvidence.Kind == "" || item.NamingEvidence.Value == "" {
+			return fmt.Errorf("assetsdb: item %q has incomplete naming evidence", item.ID)
+		}
+		if policy, ok := policies[item.Source]; !ok || policy != item.ExtractionPolicy {
+			return fmt.Errorf("assetsdb: item %q extraction policy does not match source %q", item.ID, item.Source)
+		}
+	}
+	return nil
 }
 
 func readDataPackage(root string) (*DataPackage, error) {

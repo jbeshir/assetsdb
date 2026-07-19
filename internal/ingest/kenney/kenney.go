@@ -96,6 +96,15 @@ func (in *Ingester) Ingest(
 	return src, items, data, nil
 }
 
+// Reindex applies the pure ZIP walker to an existing archive.
+func (in *Ingester) Reindex(spec assetsdb.PackSpec, data []byte) (assetsdb.Source, []assetsdb.Item, error) {
+	items, err := walkZip(spec, data)
+	if err != nil {
+		return assetsdb.Source{}, nil, err
+	}
+	return assetsdb.CuratedSource(spec, assetsdb.LicenseForSPDX(spec.License)), items, nil
+}
+
 // fetch performs a context-aware GET against url and returns the response body, failing on any
 // non-200 status.
 func (in *Ingester) fetch(ctx context.Context, url string) ([]byte, error) {
@@ -183,9 +192,12 @@ func walkZip(spec assetsdb.PackSpec, data []byte) ([]assetsdb.Item, error) {
 		return nil, fmt.Errorf("kenney: open zip: %w", err)
 	}
 
-	atlases, err := parseAtlases(zr)
-	if err != nil {
-		return nil, err
+	atlases := make(map[string][]subTexture)
+	if spec.Extraction == assetsdb.ExtractionSemanticAtlasFiles {
+		atlases, err = parseAtlases(zr)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	names := assetsdb.NewNameAllocator()
@@ -212,7 +224,104 @@ func walkZip(spec assetsdb.PackSpec, data []byte) ([]assetsdb.Item, error) {
 
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 
-	return items, nil
+	return deduplicateRepresentations(items), nil
+}
+
+// deduplicateRepresentations selects one canonical record when Kenney ships the same named asset
+// as standalone files, atlas regions, multiple resolutions, or byte-identical copies. Standalone
+// files win over matching atlas records because consumers can use them directly; default/1x paths
+// win over double/retina/2x paths. Differently rendered standalone variants remain unless their
+// bytes or normalized representation path are identical.
+func deduplicateRepresentations(items []assetsdb.Item) []assetsdb.Item {
+	standaloneEvidence := make(map[string]bool)
+	for _, item := range items {
+		if item.Region == nil {
+			standaloneEvidence[normalizedEvidence(item.NamingEvidence.Value)] = true
+		}
+	}
+
+	bestByRepresentation := make(map[string]int)
+	bestByHash := make(map[string]int)
+	keep := make([]bool, len(items))
+	for i, item := range items {
+		if item.Region != nil && standaloneEvidence[normalizedEvidence(item.NamingEvidence.Value)] {
+			continue
+		}
+		if item.Region == nil && item.Hash != "" &&
+			!claimCanonical(items, keep, bestByHash, item.Hash, i) {
+			continue
+		}
+		key := representationKey(item)
+		if !claimCanonical(items, keep, bestByRepresentation, key, i) {
+			continue
+		}
+		keep[i] = true
+	}
+
+	result := make([]assetsdb.Item, 0, len(items))
+	for i, item := range items {
+		if keep[i] {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func representationKey(item assetsdb.Item) string {
+	key := normalizedRepresentationPath(item.Path)
+	if item.Region != nil {
+		key += "#" + strings.ToLower(item.NamingEvidence.Value)
+	}
+	return key
+}
+
+func claimCanonical(items []assetsdb.Item, keep []bool, index map[string]int, key string, candidate int) bool {
+	previous, ok := index[key]
+	if ok && representationRank(items[candidate].Path) >= representationRank(items[previous].Path) {
+		return false
+	}
+	if ok {
+		keep[previous] = false
+	}
+	index[key] = candidate
+	return true
+}
+
+func normalizedEvidence(value string) string {
+	return strings.ToLower(strings.TrimSuffix(path.Base(value), path.Ext(value)))
+}
+
+var resolutionSegment = regexp.MustCompile(`(?i)^(default|double)( size)?( \([0-9]+px\))?$|^[12]x$|^retina$`)
+var resolutionSuffix = regexp.MustCompile(`(?i)([@_-](2x?|double|retina))$`)
+
+func normalizedRepresentationPath(p string) string {
+	segments := strings.Split(strings.ToLower(p), "/")
+	out := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if resolutionSegment.MatchString(segment) {
+			continue
+		}
+		ext := path.Ext(segment)
+		stem := strings.TrimSuffix(segment, ext)
+		stem = resolutionSuffix.ReplaceAllString(stem, "")
+		out = append(out, stem+ext)
+	}
+	return strings.Join(out, "/")
+}
+
+func representationRank(p string) int {
+	lower := strings.ToLower(p)
+	rank := 0
+	for _, segment := range strings.Split(lower, "/") {
+		if resolutionSegment.MatchString(segment) && segment != "default" && segment != "1x" {
+			rank++
+		}
+	}
+	stem := strings.TrimSuffix(path.Base(lower), path.Ext(lower))
+	if resolutionSuffix.MatchString(stem) {
+		rank++
+	}
+	return rank
 }
 
 // parseAtlases finds every *.xml TextureAtlas descriptor in zr and returns a map from each
@@ -265,18 +374,23 @@ func atlasItems(
 
 	for _, sub := range subs {
 		stem := strings.TrimSuffix(sub.Name, path.Ext(sub.Name))
+		if !assetsdb.SemanticUpstreamNameForSpec(spec, stem) {
+			continue
+		}
 
 		items = append(items, assetsdb.Item{
-			Name:      names.Allocate(assetsdb.Slugify(spec.ID + "-" + stem)),
-			Path:      atlasPath,
-			Format:    assetsdb.ExtNoDot(atlasPath),
-			MediaType: assetsdb.MediaType(atlasPath),
-			Title:     assetsdb.Title(stem),
-			ID:        assetsdb.ItemID(spec.ID, atlasPath, sub.Name),
-			Source:    spec.ID,
-			Kind:      assetsdb.KindSprite2D,
-			Tokens:    assetsdb.Tokenize(sub.Name),
-			Region:    &assetsdb.Region{X: sub.X, Y: sub.Y, Width: sub.Width, Height: sub.Height},
+			Name:             names.Allocate(assetsdb.Slugify(spec.ID + "-" + stem)),
+			Path:             atlasPath,
+			Format:           assetsdb.ExtNoDot(atlasPath),
+			MediaType:        assetsdb.MediaType(atlasPath),
+			Title:            assetsdb.Title(stem),
+			ID:               assetsdb.ItemID(spec.ID, atlasPath, sub.Name),
+			Source:           spec.ID,
+			Kind:             assetsdb.KindSprite2D,
+			Tokens:           assetsdb.Tokenize(sub.Name),
+			ExtractionPolicy: spec.Extraction,
+			NamingEvidence:   assetsdb.NamingEvidence{Kind: "atlas-record", Value: sub.Name},
+			Region:           &assetsdb.Region{X: sub.X, Y: sub.Y, Width: sub.Width, Height: sub.Height},
 		})
 	}
 
@@ -287,7 +401,8 @@ func atlasItems(
 // its extension.
 func fileItem(spec assetsdb.PackSpec, f *zip.File, names *assetsdb.NameAllocator) (assetsdb.Item, bool, error) {
 	kind, ok := assetsdb.Classify(f.Name)
-	if !ok {
+	if !ok || !assetsdb.PolicyAllowsKind(spec.Extraction, kind) ||
+		isPackagingPath(f.Name) || !assetsdb.SemanticUpstreamNameForSpec(spec, f.Name) {
 		return assetsdb.Item{}, false, nil
 	}
 
@@ -305,18 +420,31 @@ func fileItem(spec assetsdb.PackSpec, f *zip.File, names *assetsdb.NameAllocator
 	stem := strings.TrimSuffix(path.Base(f.Name), path.Ext(f.Name))
 
 	item := assetsdb.Item{
-		Name:      names.Allocate(assetsdb.Slugify(spec.ID + "-" + stem)),
-		Path:      f.Name,
-		Format:    assetsdb.ExtNoDot(f.Name),
-		MediaType: assetsdb.MediaType(f.Name),
-		Bytes:     int64(len(contents)),
-		Hash:      assetsdb.Hash(contents),
-		Title:     assetsdb.Title(stem),
-		ID:        assetsdb.ItemID(spec.ID, f.Name, ""),
-		Source:    spec.ID,
-		Kind:      kind,
-		Tokens:    assetsdb.Tokenize(f.Name),
+		Name:             names.Allocate(assetsdb.Slugify(spec.ID + "-" + stem)),
+		Path:             f.Name,
+		Format:           assetsdb.ExtNoDot(f.Name),
+		MediaType:        assetsdb.MediaType(f.Name),
+		Bytes:            int64(len(contents)),
+		Hash:             assetsdb.Hash(contents),
+		Title:            assetsdb.Title(stem),
+		ID:               assetsdb.ItemID(spec.ID, f.Name, ""),
+		Source:           spec.ID,
+		Kind:             kind,
+		Tokens:           assetsdb.Tokenize(f.Name),
+		ExtractionPolicy: spec.Extraction,
+		NamingEvidence:   assetsdb.NamingEvidence{Kind: "file-basename", Value: stem},
 	}
 
 	return item, true, nil
+}
+
+func isPackagingPath(p string) bool {
+	for _, segment := range strings.Split(strings.ToLower(p), "/") {
+		switch segment {
+		case "preview", "previews", "sample", "samples", "source", "sources":
+			return true
+		}
+	}
+	stem := strings.ToLower(strings.TrimSuffix(path.Base(p), path.Ext(p)))
+	return strings.Contains(stem, "preview") || strings.Contains(stem, "sample")
 }

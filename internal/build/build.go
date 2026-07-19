@@ -22,8 +22,11 @@ import (
 // ingesters map passed to Build.
 var ErrUnknownSource = errors.New("assetsdb: no ingester for source")
 
+// ErrInvalidExtractionPolicy is returned for a missing or unknown manifest extraction value.
+var ErrInvalidExtractionPolicy = errors.New("assetsdb: invalid extraction policy")
+
 // packageVersion is the semver of the datapackage.json format content Build assembles.
-const packageVersion = "1.0.0"
+const packageVersion = "2.0.0"
 
 // packageLicense is the package-level default license recorded on every built DataPackage: every
 // v1 curated source is CC0-1.0.
@@ -36,13 +39,14 @@ type manifestFile struct {
 
 // manifestPack is one manifest entry, mapping directly onto assetsdb.PackSpec.
 type manifestPack struct {
-	ID      string   `yaml:"id"`
-	Name    string   `yaml:"name"`
-	Source  string   `yaml:"source"`
-	URL     string   `yaml:"url"`
-	Theme   string   `yaml:"theme"`
-	Tags    []string `yaml:"tags"`
-	License string   `yaml:"license"`
+	ID         string   `yaml:"id"`
+	Name       string   `yaml:"name"`
+	Source     string   `yaml:"source"`
+	URL        string   `yaml:"url"`
+	Theme      string   `yaml:"theme"`
+	Tags       []string `yaml:"tags"`
+	License    string   `yaml:"license"`
+	Extraction string   `yaml:"extraction"`
 }
 
 // LoadManifest parses the packs manifest YAML file at path into a slice of assetsdb.PackSpec.
@@ -60,18 +64,72 @@ func LoadManifest(path string) ([]assetsdb.PackSpec, error) {
 
 	specs := make([]assetsdb.PackSpec, 0, len(mf.Packs))
 	for _, p := range mf.Packs {
+		policy := assetsdb.ExtractionPolicy(p.Extraction)
+		if !policy.Valid() {
+			return nil, fmt.Errorf("%w for pack %s: %q", ErrInvalidExtractionPolicy, p.ID, p.Extraction)
+		}
 		specs = append(specs, assetsdb.PackSpec{
-			ID:      p.ID,
-			Name:    p.Name,
-			Source:  p.Source,
-			URL:     p.URL,
-			Theme:   p.Theme,
-			Tags:    p.Tags,
-			License: p.License,
+			ID:         p.ID,
+			Name:       p.Name,
+			Source:     p.Source,
+			URL:        p.URL,
+			Theme:      p.Theme,
+			Tags:       p.Tags,
+			License:    p.License,
+			Extraction: policy,
 		})
 	}
 
 	return specs, nil
+}
+
+// Reindex rebuilds catalog metadata from archives already present under outDir/sources. It does
+// not modify archive bytes or access the network.
+func Reindex(ctx context.Context, specs []assetsdb.PackSpec, ingesters map[string]assetsdb.Ingester,
+	outDir string, now time.Time) (*assetsdb.DataPackage, error) {
+	if err := validateSpecs(specs); err != nil {
+		return nil, err
+	}
+	if err := makeOutputDirs(outDir); err != nil {
+		return nil, err
+	}
+	sources := make([]assetsdb.Source, 0, len(specs))
+	items := make([]assetsdb.Item, 0)
+	for _, spec := range specs {
+		in, ok := ingesters[spec.Source]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrUnknownSource, spec.Source)
+		}
+		archiveIngester, ok := in.(assetsdb.ArchiveIngester)
+		if !ok {
+			return nil, fmt.Errorf("assetsdb: ingester %s cannot reindex archives", spec.Source)
+		}
+		archivePath := filepath.Join(outDir, "sources", spec.ID+".zip")
+		// #nosec G304 -- archivePath is derived from the caller-selected output root and manifest ID.
+		data, err := os.ReadFile(archivePath)
+		if err != nil {
+			return nil, fmt.Errorf("assetsdb: read %s: %w", archivePath, err)
+		}
+		src, specItems, err := archiveIngester.Reindex(spec, data)
+		if err != nil {
+			return nil, fmt.Errorf("assetsdb: pack %s: reindex: %w", spec.ID, err)
+		}
+		sources = append(sources, src)
+		items = append(items, specItems...)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	dp := &assetsdb.DataPackage{Name: "assetsdb", Title: "assetsdb asset library", Version: packageVersion,
+		Created: now.UTC().Format(time.RFC3339), Licenses: []assetsdb.License{packageLicense},
+		SchemaVersion: 2, Sources: sources, Resources: items}
+	if err := writeDataPackage(outDir, dp); err != nil {
+		return nil, fmt.Errorf("assetsdb: write datapackage: %w", err)
+	}
+	return dp, nil
 }
 
 // Build fetches every pack in specs via the matching entry in ingesters, stores each pack's raw
@@ -85,6 +143,9 @@ func Build(
 	outDir string,
 	now time.Time,
 ) (*assetsdb.DataPackage, error) {
+	if err := validateSpecs(specs); err != nil {
+		return nil, err
+	}
 	if err := makeOutputDirs(outDir); err != nil {
 		return nil, err
 	}
@@ -102,7 +163,7 @@ func Build(
 		Version:       packageVersion,
 		Created:       now.UTC().Format(time.RFC3339),
 		Licenses:      []assetsdb.License{packageLicense},
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Sources:       sources,
 		Resources:     items,
 	}
@@ -112,6 +173,15 @@ func Build(
 	}
 
 	return dp, nil
+}
+
+func validateSpecs(specs []assetsdb.PackSpec) error {
+	for _, spec := range specs {
+		if !spec.Extraction.Valid() {
+			return fmt.Errorf("%w for pack %s: %q", ErrInvalidExtractionPolicy, spec.ID, spec.Extraction)
+		}
+	}
+	return nil
 }
 
 // writeDataPackage atomically serializes dataPackage into outDir/datapackage.json.

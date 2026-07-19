@@ -45,6 +45,7 @@ func printUsage(w io.Writer) {
 
 Usage:
   assetsdb build --manifest <path> --out <dir>   fetch and catalog packs from a manifest
+                 [--reuse-archives]              reindex existing source ZIPs without network
   assetsdb add ...                               phase-2 (not yet implemented): ingest a
                                                   locally-generated asset`)
 }
@@ -55,6 +56,7 @@ func runBuild(args []string) error {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	manifestPath := fs.String("manifest", "", "path to the packs manifest YAML file")
 	outDir := fs.String("out", "", "output directory for the built database")
+	reuseArchives := fs.Bool("reuse-archives", false, "reindex existing archives instead of downloading")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
@@ -73,7 +75,12 @@ func runBuild(args []string) error {
 		ingesters[ing.Name()] = ing
 	}
 
-	dp, err := build.Build(context.Background(), specs, ingesters, *outDir, time.Now())
+	var dp *assetsdb.DataPackage
+	if *reuseArchives {
+		dp, err = build.Reindex(context.Background(), specs, ingesters, *outDir, time.Now())
+	} else {
+		dp, err = build.Build(context.Background(), specs, ingesters, *outDir, time.Now())
+	}
 	if err != nil {
 		return fmt.Errorf("build: %w", err)
 	}

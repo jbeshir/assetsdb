@@ -14,6 +14,13 @@ type Ingester interface {
 	Ingest(ctx context.Context, spec PackSpec) (src Source, items []Item, zip []byte, err error)
 }
 
+// ArchiveIngester is optionally implemented by ingesters whose pure archive walker can reindex
+// an already-downloaded source without network access.
+type ArchiveIngester interface {
+	Ingester
+	Reindex(spec PackSpec, zip []byte) (src Source, items []Item, err error)
+}
+
 // PackSpec is one entry in the packs manifest, describing a single curated asset pack to fetch
 // and catalog.
 type PackSpec struct {
@@ -31,4 +38,6 @@ type PackSpec struct {
 	Tags []string
 	// License is the SPDX identifier to record for the pack (e.g. "CC0-1.0").
 	License string
+	// Extraction selects the required deterministic semantic extraction policy.
+	Extraction ExtractionPolicy
 }

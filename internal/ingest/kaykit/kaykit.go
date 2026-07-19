@@ -80,6 +80,15 @@ func (i *Ingester) Ingest(
 	return src, items, data, nil
 }
 
+// Reindex applies the pure ZIP walker to an existing archive.
+func (i *Ingester) Reindex(spec assetsdb.PackSpec, data []byte) (assetsdb.Source, []assetsdb.Item, error) {
+	items, err := walkZip(spec, data)
+	if err != nil {
+		return assetsdb.Source{}, nil, err
+	}
+	return assetsdb.CuratedSource(spec, assetsdb.LicenseForSPDX(spec.License)), items, nil
+}
+
 // client returns the HTTP client to use for requests, falling back to defaultHTTPClient.
 func (i *Ingester) client() *http.Client {
 	if i.HTTPClient != nil {
@@ -213,7 +222,7 @@ func walkZip(spec assetsdb.PackSpec, data []byte) ([]assetsdb.Item, error) {
 		return nil, fmt.Errorf("kaykit: open zip: %w", err)
 	}
 
-	candidates := dedupModelFormats(collectCandidates(zr.File))
+	candidates := dedupModelFormats(collectPolicyCandidates(spec, zr.File))
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].path < candidates[j].path })
 
 	items := make([]assetsdb.Item, 0, len(candidates))
@@ -229,16 +238,16 @@ func walkZip(spec assetsdb.PackSpec, data []byte) ([]assetsdb.Item, error) {
 	return items, nil
 }
 
-// collectCandidates classifies every regular file in files, dropping directories, files Classify
-// doesn't recognize, and KayKit's known preview/marketing images.
-func collectCandidates(files []*zip.File) []candidate {
+// collectPolicyCandidates classifies regular files and applies the pack's extraction policy.
+func collectPolicyCandidates(spec assetsdb.PackSpec, files []*zip.File) []candidate {
 	out := make([]candidate, 0, len(files))
 	for _, f := range files {
 		if f.FileInfo().IsDir() || isPreviewImage(f.Name) {
 			continue
 		}
 		kind, ok := assetsdb.Classify(f.Name)
-		if !ok {
+		if !ok || !assetsdb.PolicyAllowsKind(spec.Extraction, kind) ||
+			!assetsdb.SemanticUpstreamNameForSpec(spec, f.Name) {
 			continue
 		}
 		out = append(out, candidate{file: f, path: f.Name, kind: kind})
@@ -379,17 +388,19 @@ func buildItem(spec assetsdb.PackSpec, c candidate, names *assetsdb.NameAllocato
 	base, tokens := titleBaseAndTokens(c)
 
 	return assetsdb.Item{
-		Name:      names.Allocate(spec.ID + "-" + assetsdb.Slugify(base)),
-		Path:      c.path,
-		Format:    assetsdb.ExtNoDot(c.path),
-		MediaType: assetsdb.MediaType(c.path),
-		Bytes:     int64(len(contents)),
-		Hash:      assetsdb.Hash(contents),
-		Title:     assetsdb.Title(base),
-		ID:        assetsdb.ItemID(spec.ID, c.path, ""),
-		Source:    spec.ID,
-		Kind:      c.kind,
-		Tokens:    tokens,
+		Name:             names.Allocate(spec.ID + "-" + assetsdb.Slugify(base)),
+		Path:             c.path,
+		Format:           assetsdb.ExtNoDot(c.path),
+		MediaType:        assetsdb.MediaType(c.path),
+		Bytes:            int64(len(contents)),
+		Hash:             assetsdb.Hash(contents),
+		Title:            assetsdb.Title(base),
+		ID:               assetsdb.ItemID(spec.ID, c.path, ""),
+		Source:           spec.ID,
+		Kind:             c.kind,
+		Tokens:           tokens,
+		ExtractionPolicy: spec.Extraction,
+		NamingEvidence:   assetsdb.NamingEvidence{Kind: "file-basename", Value: base},
 	}, nil
 }
 

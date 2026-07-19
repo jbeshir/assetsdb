@@ -15,13 +15,14 @@ const fixturePath = "../../../testdata/kaykit-min.zip"
 
 func testSpec() assetsdb.PackSpec {
 	return assetsdb.PackSpec{
-		ID:      "kaykit-furniture-bits",
-		Name:    "KayKit Furniture Bits",
-		Source:  "kaykit",
-		URL:     "https://github.com/KayKit-Game-Assets/KayKit-Furniture-Bits-1.0",
-		Theme:   "furniture",
-		Tags:    []string{"furniture", "interior"},
-		License: "CC0-1.0",
+		ID:         "kaykit-furniture-bits",
+		Name:       "KayKit Furniture Bits",
+		Source:     "kaykit",
+		URL:        "https://github.com/KayKit-Game-Assets/KayKit-Furniture-Bits-1.0",
+		Theme:      "furniture",
+		Tags:       []string{"furniture", "interior"},
+		License:    "CC0-1.0",
+		Extraction: assetsdb.ExtractionSemanticModels,
 	}
 }
 
@@ -40,7 +41,7 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 	// The fixture has 2 glTF models (armchair, chair_A) and the same texture PNG duplicated
 	// under both a gltf/ and a texture/ directory; their .bin buffers, LICENSE.txt, and the
 	// directory entries themselves are all not classifiable/skippable and must not appear.
-	require.Len(t, items, 4)
+	require.Len(t, items, 2)
 
 	byPath := make(map[string]assetsdb.Item, len(items))
 	for _, it := range items {
@@ -66,13 +67,14 @@ func TestWalkZip_EmitsExpectedItems(t *testing.T) {
 	require.Equal(t, assetsdb.KindModel3D, chair.Kind)
 	require.Equal(t, "Chair A", chair.Title)
 
-	gltfTex, ok := byPath[gltfTexPath]
-	require.True(t, ok, "expected sprite2d item for gltf/furniturebits_texture.png")
-	require.Equal(t, assetsdb.KindSprite2D, gltfTex.Kind)
-
-	texTex, ok := byPath[texTexPath]
-	require.True(t, ok, "expected sprite2d item for texture/furniturebits_texture.png")
-	require.Equal(t, assetsdb.KindSprite2D, texTex.Kind)
+	_, ok = byPath[gltfTexPath]
+	require.False(t, ok, "model policy must omit material textures")
+	_, ok = byPath[texTexPath]
+	require.False(t, ok, "model policy must omit material textures")
+	for _, item := range items {
+		require.Equal(t, spec.Extraction, item.ExtractionPolicy)
+		require.NotEmpty(t, item.NamingEvidence.Value)
+	}
 
 	// Skipped files must not produce items under any path.
 	for p := range byPath {
@@ -206,6 +208,7 @@ func TestWalkZip_ItemsSortedByID(t *testing.T) {
 
 func TestWalkZip_NameSlugsAreUniqueOnCollision(t *testing.T) {
 	spec := testSpec()
+	spec.Extraction = assetsdb.ExtractionSemanticFiles
 	items, err := walkZip(spec, loadFixture(t))
 	require.NoError(t, err)
 

@@ -26,19 +26,21 @@ func TestWalkZip(t *testing.T) {
 	data := addStubEntry(t, readFixture(t), atlasImageEntry, []byte("stub-atlas-pixels"))
 
 	spec := assetsdb.PackSpec{
-		ID:   "kenney-jumper-pack",
-		Name: "Jumper Pack",
-		Tags: []string{"platformer"},
+		ID:         "kenney-jumper-pack",
+		Name:       "Jumper Pack",
+		Tags:       []string{"platformer"},
+		Extraction: assetsdb.ExtractionSemanticAtlasFiles,
 	}
 
 	items, err := walkZip(spec, data)
 	require.NoError(t, err)
 
-	// 7 individually-shipped PNGs (fixtures/FIXTURES.md) + 117 atlas SubTextures
-	// (spritesheet_jumper.xml, confirmed via readAtlas below).
+	// 7 individually-shipped PNGs (fixtures/FIXTURES.md) + 99 canonical semantic atlas
+	// SubTextures. Of the atlas's 117 records, 12 generic tile+qualifier names are rejected and
+	// 6 records duplicated by standalone named files are omitted.
 	atlas := parseFixtureAtlas(t, data)
 	require.Len(t, atlas.SubTextures, 117)
-	require.Len(t, items, 7+117)
+	require.Len(t, items, 7+99)
 
 	var regionItems, wholeFileItems int
 	seenIDs := make(map[string]struct{}, len(items))
@@ -49,6 +51,8 @@ func TestWalkZip(t *testing.T) {
 		require.Truef(t, strings.HasPrefix(it.ID, "assetsdb:kenney-jumper-pack/"), "id %q missing source prefix", it.ID)
 		require.Equal(t, spec.ID, it.Source)
 		require.Nil(t, it.Provenance)
+		require.Equal(t, spec.Extraction, it.ExtractionPolicy)
+		require.NotEmpty(t, it.NamingEvidence.Value)
 
 		_, dup := seenIDs[it.ID]
 		require.False(t, dup, "duplicate id %q", it.ID)
@@ -65,15 +69,15 @@ func TestWalkZip(t *testing.T) {
 		wholeFileItems++
 	}
 
-	require.Equal(t, 117, regionItems)
+	require.Equal(t, 99, regionItems)
 	require.Equal(t, 7, wholeFileItems)
 	require.True(t, sort.SliceIsSorted(items, func(i, j int) bool { return items[i].ID < items[j].ID }))
 
-	bunny := findItem(t, items, "assetsdb:kenney-jumper-pack/Spritesheets/sprites.png#bunny1_stand.png")
+	bunny := findItem(t, items, "assetsdb:kenney-jumper-pack/Spritesheets/sprites.png#bunny1_hurt.png")
 	require.Equal(t, assetsdb.KindSprite2D, bunny.Kind)
-	require.Equal(t, []string{"bunny", "1", "stand"}, bunny.Tokens)
-	require.Equal(t, "Bunny 1 Stand", bunny.Title)
-	require.Equal(t, &assetsdb.Region{X: 690, Y: 406, Width: 120, Height: 201}, bunny.Region)
+	require.Equal(t, []string{"bunny", "1", "hurt"}, bunny.Tokens)
+	require.Equal(t, "Bunny 1 Hurt", bunny.Title)
+	require.Equal(t, &assetsdb.Region{X: 382, Y: 946, Width: 150, Height: 174}, bunny.Region)
 	require.Zero(t, bunny.Bytes)
 	require.Empty(t, bunny.Hash)
 
@@ -94,7 +98,7 @@ func TestWalkZip(t *testing.T) {
 }
 
 func TestWalkZip_WithoutAtlasImage(t *testing.T) {
-	spec := assetsdb.PackSpec{ID: "kenney-jumper-pack", Name: "Jumper Pack"}
+	spec := assetsdb.PackSpec{ID: "kenney-jumper-pack", Name: "Jumper Pack", Extraction: assetsdb.ExtractionSemanticAtlasFiles}
 
 	items, err := walkZip(spec, readFixture(t))
 	require.NoError(t, err)
@@ -103,6 +107,33 @@ func TestWalkZip_WithoutAtlasImage(t *testing.T) {
 	for _, it := range items {
 		require.Nil(t, it.Region)
 	}
+}
+
+func TestWalkZip_SemanticFilesDoesNotExpandAtlas(t *testing.T) {
+	data := addStubEntry(t, readFixture(t), atlasImageEntry, []byte("stub-atlas-pixels"))
+	spec := assetsdb.PackSpec{ID: "kenney-jumper-pack", Name: "Jumper Pack", Extraction: assetsdb.ExtractionSemanticFiles}
+
+	items, err := walkZip(spec, data)
+	require.NoError(t, err)
+	require.Len(t, items, 7)
+	for _, item := range items {
+		require.Nil(t, item.Region)
+		require.Equal(t, "file-basename", item.NamingEvidence.Kind)
+	}
+}
+
+func TestDeduplicateRepresentations(t *testing.T) {
+	items := []assetsdb.Item{
+		{ID: "default", Path: "PNG/Default/door.png", Hash: "sha256:door", NamingEvidence: assetsdb.NamingEvidence{Value: "door"}},
+		{ID: "double", Path: "PNG/Double/door.png", Hash: "sha256:door-2x", NamingEvidence: assetsdb.NamingEvidence{Value: "door"}},
+		{ID: "copy", Path: "PNG/Other/door-copy.png", Hash: "sha256:door", NamingEvidence: assetsdb.NamingEvidence{Value: "door-copy"}},
+		{ID: "atlas", Path: "Spritesheet/sheet.png", Region: &assetsdb.Region{}, NamingEvidence: assetsdb.NamingEvidence{Value: "door.png"}},
+		{ID: "window-atlas", Path: "Spritesheet/sheet.png", Region: &assetsdb.Region{}, NamingEvidence: assetsdb.NamingEvidence{Value: "window"}},
+		{ID: "window-retina", Path: "Spritesheet/sheet@2.png", Region: &assetsdb.Region{}, NamingEvidence: assetsdb.NamingEvidence{Value: "window"}},
+	}
+
+	got := deduplicateRepresentations(items)
+	require.Equal(t, []string{"default", "window-atlas"}, []string{got[0].ID, got[1].ID})
 }
 
 func TestSlugFromURL(t *testing.T) {

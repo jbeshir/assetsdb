@@ -32,6 +32,8 @@ the pinned `golangci-lint`; `make validate` runs lint, test, and build together.
 
 ```sh
 assetsdb build --manifest packs.yaml --out <db>
+# Rebuild metadata from ZIPs already in <db>/sources (no downloads):
+assetsdb build --manifest packs.yaml --out <db> --reuse-archives
 ```
 
 Reads a manifest (see [`packs.yaml`](packs.yaml) for the starter curated list of Kenney and
@@ -110,3 +112,8 @@ The path passed to `Read` should be a directory built by `assetsdb build` (one c
 reject paths that escape the database root. The root package also exposes `DataPackage`,
 `Encode`, `Decode`, `Classify`, `MediaType`, `Tokenize`, `PackSpec`, and `Ingester`; see
 [SPEC.md](SPEC.md) for the complete API.
+
+Every active manifest entry declares an `extraction` policy. Ingestion keeps only assets whose
+upstream filename or atlas record identifies their contents, and records that naming evidence on
+the resulting resource. Packs with no deterministically identifiable items live in
+[`removed-packs.yaml`](removed-packs.yaml), with their source metadata and removal reason retained.
