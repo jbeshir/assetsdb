@@ -17,7 +17,7 @@ func testDataPackage() DataPackage {
 		Created: "2026-07-18T00:00:00Z",
 		Licenses: []License{
 			{
-				Name:  "CC0-1.0",
+				Name:  spdxCC0,
 				Path:  "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
 				Title: "Creative Commons Zero v1.0 Universal",
 			},
@@ -29,7 +29,7 @@ func testDataPackage() DataPackage {
 				Title:       "Kenney Test Pack",
 				Description: "A minimal test fixture pack.",
 				Path:        "sources/kenney-test-pack.zip",
-				Licenses:    []License{{Name: "CC0-1.0"}},
+				Licenses:    []License{{Name: spdxCC0}},
 				Type:        "curated",
 				Origin:      "https://kenney.nl/assets/test-pack",
 				Tags:        []string{"test"},
@@ -126,7 +126,10 @@ func TestOpen(t *testing.T) {
 	require.NoError(t, os.MkdirAll(sourcesDir, 0o750))
 	zipData, err := os.ReadFile(filepath.Join("testdata", "kenney-min.zip"))
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(sourcesDir, "kenney-test-pack.zip"), zipData, 0o600))
+	root, err := os.OpenRoot(sourcesDir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
+	require.NoError(t, root.WriteFile("kenney-test-pack.zip", zipData, 0o600))
 
 	db, err := Read(dir)
 	require.NoError(t, err)

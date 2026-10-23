@@ -15,7 +15,7 @@ func TestTokenizeWorkedExamples(t *testing.T) {
 	}{
 		{"alienYellow_walk2.png", []string{"alien", "yellow", "walk", "2"}},
 		{"knight_axe_2h.gltf", []string{"knight", "axe", "2", "h"}},
-		{"spaceShooter_enemyBlack1.png", []string{"space", "shooter", "enemy", "black", "1"}},
+		{"spaceShooter_enemyBlack1.png", []string{"space", tagShooter, "enemy", "black", "1"}},
 		{"tile_0043.png", []string{"tile", "0043"}},
 		{"barbarian_Idle.fbx", []string{"barbarian", "idle"}},
 	}
