@@ -1,8 +1,8 @@
-// Package format defines the on-disk shape of an assetsdb database: a Frictionless Data Package
+// Package assetsdb defines the on-disk shape of an assetsdb database: a Frictionless Data Package
 // v2 hybrid JSON descriptor (datapackage.json), read/write access to it, extension-based asset
 // classification, filename tokenization for search, and the Ingester interface implemented by
 // each curated-pack importer. It contains no network code and no provider-specific logic.
-package format
+package assetsdb
 
 // Kind enumerates the asset categories assetsdb classifies files into. There is deliberately no
 // catch-all "other" kind: files with an unrecognized or ignored extension are skipped by

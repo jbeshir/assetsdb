@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/jbeshir/assetsdb/format"
+	"github.com/jbeshir/assetsdb"
 	"github.com/jbeshir/assetsdb/internal/build"
 	"github.com/jbeshir/assetsdb/internal/ingest/kaykit"
 	"github.com/jbeshir/assetsdb/internal/ingest/kenney"
@@ -68,8 +68,8 @@ func runBuild(args []string) error {
 		return fmt.Errorf("load manifest: %w", err)
 	}
 
-	ingesters := make(map[string]format.Ingester)
-	for _, ing := range []format.Ingester{kenney.New(), &kaykit.Ingester{}} {
+	ingesters := make(map[string]assetsdb.Ingester)
+	for _, ing := range []assetsdb.Ingester{kenney.New(), &kaykit.Ingester{}} {
 		ingesters[ing.Name()] = ing
 	}
 

@@ -1,10 +1,9 @@
 # assetsdb
 
-`assetsdb` is a builder and on-disk searchable database for CC0-licensed game-art assets. It
-ingests curated asset packs (currently [Kenney](https://kenney.nl) and
-[KayKit](https://kaykit.itch.io)) into a single portable directory that other tools — notably the
-`mcp-servers/assets` MCP server — can read to search for and serve individual sprites, models,
-and other files.
+`assetsdb` builds and provides searchable access to an on-disk database of CC0-licensed game-art
+assets. It ingests curated asset packs (currently [Kenney](https://kenney.nl) and
+[KayKit](https://kaykit.itch.io)) into a single portable directory containing a JSON catalog and
+the original source archives.
 
 The full on-disk and JSON format is specified in [SPEC.md](SPEC.md). This README covers what
 exists and how to use it.
@@ -78,14 +77,16 @@ Two curated ingest sources, both confirmed CC0-1.0:
 - **KayKit** — GitHub codeload download (`codeload.github.com/.../zip/refs/heads/<branch>`) of
   each pack repo, walking the archive for 3D models and textures.
 
-## Consuming assetsdb from Go
+## Go package
 
-`mcp-servers/assets` (and any other Go consumer) imports the `format` package directly:
+The module root, `github.com/jbeshir/assetsdb`, contains the database API, schema types, catalog
+construction helpers, JSON serialization, asset classification and tokenization, and the ingest
+contract. For example:
 
 ```go
-import "github.com/jbeshir/assetsdb/format"
+import "github.com/jbeshir/assetsdb"
 
-db, err := format.Read(os.Getenv("ASSETS_DB"))
+db, err := assetsdb.Read(os.Getenv("ASSETS_DB"))
 if err != nil {
     // handle error
 }
@@ -96,7 +97,16 @@ for _, item := range hits {
     rc, err := db.Open(item)
     // ...
 }
+
+sources := db.Sources() // stable source-ID order; safe for the caller to mutate
+items := db.ItemsForSource(sources[0].Name) // stable item-ID order; also mutation-safe
+
+archive, err := db.OpenSource(sources[0].Name) // raw registered source archive
+// use and close archive
 ```
 
-`ASSETS_DB` should point at a directory built by `assetsdb build` (i.e. one containing
-`datapackage.json`). See [SPEC.md](SPEC.md) for the full `format` API.
+The path passed to `Read` should be a directory built by `assetsdb build` (one containing
+`datapackage.json`). `Open` and `OpenSource` use the archive path registered in each source and
+reject paths that escape the database root. The root package also exposes `DataPackage`,
+`Encode`, `Decode`, `Classify`, `MediaType`, `Tokenize`, `PackSpec`, and `Ingester`; see
+[SPEC.md](SPEC.md) for the complete API.

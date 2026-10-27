@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jbeshir/assetsdb/format"
+	"github.com/jbeshir/assetsdb"
 	"github.com/stretchr/testify/require"
 )
 
-const fixturePath = "../../../format/testdata/kenney-min.zip"
+const fixturePath = "../../../testdata/kenney-min.zip"
 
 // atlasImageEntry is the path the fixture's spritesheet_jumper.xml resolves its imagePath to
 // ("Spritesheets/" + imagePath="sprites.png"). The minimal fixture omits the actual atlas image
@@ -25,7 +25,7 @@ const atlasImageEntry = "Spritesheets/sprites.png"
 func TestWalkZip(t *testing.T) {
 	data := addStubEntry(t, readFixture(t), atlasImageEntry, []byte("stub-atlas-pixels"))
 
-	spec := format.PackSpec{
+	spec := assetsdb.PackSpec{
 		ID:   "kenney-jumper-pack",
 		Name: "Jumper Pack",
 		Tags: []string{"platformer"},
@@ -45,7 +45,7 @@ func TestWalkZip(t *testing.T) {
 	seenNames := make(map[string]struct{}, len(items))
 
 	for _, it := range items {
-		require.Contains(t, []format.Kind{format.KindSprite2D, format.KindModel3D, format.KindAudio, format.KindFont}, it.Kind)
+		require.Contains(t, []assetsdb.Kind{assetsdb.KindSprite2D, assetsdb.KindModel3D, assetsdb.KindAudio, assetsdb.KindFont}, it.Kind)
 		require.Truef(t, strings.HasPrefix(it.ID, "assetsdb:kenney-jumper-pack/"), "id %q missing source prefix", it.ID)
 		require.Equal(t, spec.ID, it.Source)
 		require.Nil(t, it.Provenance)
@@ -70,15 +70,15 @@ func TestWalkZip(t *testing.T) {
 	require.True(t, sort.SliceIsSorted(items, func(i, j int) bool { return items[i].ID < items[j].ID }))
 
 	bunny := findItem(t, items, "assetsdb:kenney-jumper-pack/Spritesheets/sprites.png#bunny1_stand.png")
-	require.Equal(t, format.KindSprite2D, bunny.Kind)
+	require.Equal(t, assetsdb.KindSprite2D, bunny.Kind)
 	require.Equal(t, []string{"bunny", "1", "stand"}, bunny.Tokens)
 	require.Equal(t, "Bunny 1 Stand", bunny.Title)
-	require.Equal(t, &format.Region{X: 690, Y: 406, Width: 120, Height: 201}, bunny.Region)
+	require.Equal(t, &assetsdb.Region{X: 690, Y: 406, Width: 120, Height: 201}, bunny.Region)
 	require.Zero(t, bunny.Bytes)
 	require.Empty(t, bunny.Hash)
 
 	coin := findItem(t, items, "assetsdb:kenney-jumper-pack/PNG/HUD/coin_gold.png")
-	require.Equal(t, format.KindSprite2D, coin.Kind)
+	require.Equal(t, assetsdb.KindSprite2D, coin.Kind)
 	require.Equal(t, []string{"coin", "gold", "hud"}, coin.Tokens)
 	require.Equal(t, "Coin Gold", coin.Title)
 	require.Nil(t, coin.Region)
@@ -94,7 +94,7 @@ func TestWalkZip(t *testing.T) {
 }
 
 func TestWalkZip_WithoutAtlasImage(t *testing.T) {
-	spec := format.PackSpec{ID: "kenney-jumper-pack", Name: "Jumper Pack"}
+	spec := assetsdb.PackSpec{ID: "kenney-jumper-pack", Name: "Jumper Pack"}
 
 	items, err := walkZip(spec, readFixture(t))
 	require.NoError(t, err)
@@ -213,7 +213,7 @@ func parseFixtureAtlas(t *testing.T, data []byte) textureAtlas {
 	return textureAtlas{}
 }
 
-func findItem(t *testing.T, items []format.Item, id string) format.Item {
+func findItem(t *testing.T, items []assetsdb.Item, id string) assetsdb.Item {
 	t.Helper()
 
 	for _, it := range items {
@@ -223,5 +223,5 @@ func findItem(t *testing.T, items []format.Item, id string) format.Item {
 	}
 
 	t.Fatalf("item %q not found", id)
-	return format.Item{}
+	return assetsdb.Item{}
 }

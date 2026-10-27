@@ -2,9 +2,8 @@
 
 This is the authoritative specification of the assetsdb on-disk database format: the directory
 layout, the `datapackage.json` JSON schema, id and license-inheritance rules, and the reserved
-phase-2 generated-source design. It documents the `format` package (`github.com/jbeshir/assetsdb/format`)
-as built — every key and type below matches `format/types.go`, `format/db.go`, and
-`format/ingest.go` exactly.
+phase-2 generated-source design. Database access, schema and serialization types, catalog
+helpers, and ingest contracts all live in `github.com/jbeshir/assetsdb`.
 
 Field-name provenance (Frictionless-standard vs. DCAT-mapped vs. custom) is researched in
 `/workspace/refs/FINDINGS-frictionless.md`; this document restates only the conclusions needed to
@@ -25,8 +24,9 @@ use the format.
                              # build output.)
 ```
 
-There is no other required top-level state. A `DB` (`format.Read`) is a read-only in-memory view
-of `datapackage.json`; item bytes are extracted on demand from `sources/<id>.zip` via `DB.Open`.
+There is no other required top-level state. A root `assetsdb.DB` (`assetsdb.Read`) is a read-only
+in-memory view of `datapackage.json`; item bytes are extracted on demand from the archive
+registered on the item's source via `DB.Open` (see §4).
 
 ## 2. `datapackage.json` schema
 
@@ -79,8 +79,8 @@ FINDINGS-frictionless.md §4's naming-clash note.
 | *(no `licenses` key)* | — | — | — | An `Item` never carries its own license field. Resolve the effective license via `DB.LicenseFor`, which walks item → source → package (§2.4). |
 | `x_assetsdb:id` | `ID` | yes | custom | Canonical stable global id; see the id-form rule below. |
 | `x_assetsdb:source` | `Source` | yes | custom | Owning `Source.Name`, resolvable via `DB.SourceByID`. |
-| `x_assetsdb:kind` | `Kind` | yes | custom | One of `sprite2d` \| `model3d` \| `audio` \| `font` (`format.Kind`). |
-| `x_assetsdb:tokens` | `Tokens` | no | custom | Lowercase, de-duplicated search tokens from `format.Tokenize`. |
+| `x_assetsdb:kind` | `Kind` | yes | custom | One of `sprite2d` \| `model3d` \| `audio` \| `font` (`assetsdb.Kind`). |
+| `x_assetsdb:tokens` | `Tokens` | no | custom | Lowercase, de-duplicated search tokens from `assetsdb.Tokenize`. |
 | `x_assetsdb:region` | `Region` | no | custom | `{x,y,width,height}` atlas sub-region; present only for a Kenney atlas sub-sprite, absent for a whole-file item. |
 | `x_assetsdb:provenance` | `Provenance` | no (always `null` in v1) | custom | RESERVED for phase-2; see §5. Every curated item leaves this `null`. |
 
@@ -163,24 +163,43 @@ These are two different identifiers on the same `Item` and must not be conflated
 `x_assetsdb:schemaVersion` is `1` for everything described in this document. It versions the
 **on-disk shape** (field names, required-ness, layout) — independent of `version`, which is a
 SemVer of the package's *content* (e.g. bumps when packs are added/removed/rebuilt). A future
-breaking change to the JSON shape or layout bumps `schemaVersion`; `format.Read` may use it to
+breaking change to the JSON shape or layout bumps `schemaVersion`; `assetsdb.Read` may use it to
 reject or migrate an incompatible on-disk database. Additive, backward-compatible changes (a new
 optional `x_assetsdb:` key) do not require a bump.
 
-## 4. Go API (`format` package)
+## 4. Go API
+
+The module root owns database access, schema and serialization, catalog construction,
+classification, tokenization, and ingest contracts:
+
+```go
+func Read(root string) (*DB, error)
+
+func (db *DB) Search(query string) []Item
+func (db *DB) Sources() []Source
+func (db *DB) SourceByID(id string) (Source, bool)
+func (db *DB) ItemsForSource(sourceID string) []Item
+func (db *DB) LicenseFor(item Item) License
+func (db *DB) Open(item Item) (io.ReadCloser, error)
+func (db *DB) OpenSource(sourceID string) (io.ReadCloser, error)
+```
+
+`Sources` is sorted by source ID, and `ItemsForSource` is sorted by stable item ID. Both return
+deep enough copies that callers cannot mutate indexed slices, regions, or provenance parameter
+maps. `SourceByID` also returns a copy. `Open` extracts an entry while `OpenSource` streams the
+registered raw archive itself. Both resolve the source registry's `Source.Path`; paths are
+checked lexically and after symlink evaluation to prevent access outside the database root.
+
+`ErrNotFound` is returned (wrapped with `%w`) for unknown sources, missing registered archives,
+and missing archive entries; check with `errors.Is(err, assetsdb.ErrNotFound)`.
 
 ```go
 func Classify(path string) (kind Kind, ok bool)   // extension -> Kind; ok=false for ignored files
 func MediaType(path string) string                // best-effort IANA media type, "" if unknown
 func Tokenize(path string) []string                // lowercase, de-duplicated search tokens
 
-func Read(dir string) (*DB, error)
-func Write(dir string, dp *DataPackage) error      // atomic: temp file + rename
-
-func (db *DB) Search(query string) []Item
-func (db *DB) SourceByID(id string) (Source, bool)
-func (db *DB) LicenseFor(it Item) License
-func (db *DB) Open(it Item) (io.ReadCloser, error)
+func Decode(r io.Reader) (*DataPackage, error)
+func Encode(w io.Writer, dp *DataPackage) error
 
 type Ingester interface {
     Name() string
@@ -188,9 +207,6 @@ type Ingester interface {
 }
 type PackSpec struct { ID, Name, Source, URL, Theme string; Tags []string; License string }
 ```
-
-`ErrNotFound` is returned (wrapped with `%w`) by `DB.Open` when the source archive or the entry
-within it doesn't exist; check with `errors.Is(err, format.ErrNotFound)`.
 
 ## 5. Phase-2: generated sources (reserved, not implemented in v1)
 
@@ -206,7 +222,7 @@ reserved design so a future phase has a fixed contract to build against.
   generated assets are added incrementally one at a time (`assetsdb add`), not fetched as a
   pre-built archive.
 - Every generated `Item` fills in `x_assetsdb:provenance` (the `Provenance` Go type, already
-  defined in `format/types.go`, always `nil` on every v1/curated item):
+  defined by `assetsdb.Provenance`, always `nil` on every v1/curated item):
 
   ```jsonc
   "x_assetsdb:provenance": {
@@ -227,17 +243,17 @@ reserved design so a future phase has a fixed contract to build against.
 
 ## 6. How `mcp-servers/assets` consumes this
 
-The `assets` MCP server is expected to import the `format` package directly and read the
+The `assets` MCP server is expected to import the module root and read the
 database location from an environment variable:
 
 ```go
 import (
     "os"
 
-    "github.com/jbeshir/assetsdb/format"
+    "github.com/jbeshir/assetsdb"
 )
 
-db, err := format.Read(os.Getenv("ASSETS_DB"))
+db, err := assetsdb.Read(os.Getenv("ASSETS_DB"))
 if err != nil {
     // handle error
 }
@@ -251,4 +267,4 @@ for _, it := range items {
 ```
 
 No HTTP, RPC, or serialization layer sits between `assetsdb` and its consumers in v1 — the
-database is a plain directory on disk, read in-process via the `format` package.
+database is a plain directory on disk, read in-process via the root package.
