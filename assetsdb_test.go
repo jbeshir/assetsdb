@@ -14,13 +14,19 @@ import (
 	"github.com/jbeshir/assetsdb"
 )
 
+const (
+	sourceAName = "source-a"
+	sourceBName = "source-b"
+	spdxCC0     = "CC0-1.0"
+)
+
 func TestReadSearchAndLicense(t *testing.T) {
 	db, dataPackage := createTestDB(t)
 
 	hits := db.Search("GOLD coin")
 	require.Len(t, hits, 1)
 	require.Equal(t, "assetsdb:source-a/a.png", hits[0].ID)
-	require.Equal(t, assetsdb.License{Name: "CC0-1.0"}, db.LicenseFor(hits[0]))
+	require.Equal(t, assetsdb.License{Name: spdxCC0}, db.LicenseFor(hits[0]))
 
 	orphan := hits[0]
 	orphan.Source = "unknown"
@@ -46,7 +52,7 @@ func TestOpenItemAndRegisteredSource(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("gold coin"), readAndClose(t, itemReader))
 
-	sourceReader, err := db.OpenSource("source-b")
+	sourceReader, err := db.OpenSource(sourceBName)
 	require.NoError(t, err)
 	rawArchive := readAndClose(t, sourceReader)
 
@@ -142,18 +148,18 @@ func TestSourceEnumerationIsOrderedAndMutationSafe(t *testing.T) {
 	const mutation = "mutated"
 
 	sources := db.Sources()
-	require.Equal(t, []string{"source-a", "source-b"}, []string{sources[0].Name, sources[1].Name})
+	require.Equal(t, []string{sourceAName, sourceBName}, []string{sources[0].Name, sources[1].Name})
 	sources[0].Tags[0] = mutation
 	sources[0].Licenses[0].Name = mutation
 
 	again := db.Sources()
 	require.Equal(t, "icons", again[0].Tags[0])
-	require.Equal(t, "CC0-1.0", again[0].Licenses[0].Name)
+	require.Equal(t, spdxCC0, again[0].Licenses[0].Name)
 
-	byID, ok := db.SourceByID("source-a")
+	byID, ok := db.SourceByID(sourceAName)
 	require.True(t, ok)
 	byID.Tags[0] = mutation
-	unchanged, ok := db.SourceByID("source-a")
+	unchanged, ok := db.SourceByID(sourceAName)
 	require.True(t, ok)
 	require.Equal(t, "icons", unchanged.Tags[0])
 
@@ -165,7 +171,7 @@ func TestItemEnumerationIsOrderedAndMutationSafe(t *testing.T) {
 	db, _ := createTestDB(t)
 	const mutation = "mutated"
 
-	items := db.ItemsForSource("source-a")
+	items := db.ItemsForSource(sourceAName)
 	require.Len(t, items, 2)
 	require.Equal(t, "assetsdb:source-a/a.png", items[0].ID)
 	require.Equal(t, "assetsdb:source-a/z.png", items[1].ID)
@@ -174,7 +180,7 @@ func TestItemEnumerationIsOrderedAndMutationSafe(t *testing.T) {
 	items[0].Region.X = 99
 	items[0].Provenance.Params["seed"] = mutation
 
-	again := db.ItemsForSource("source-a")
+	again := db.ItemsForSource(sourceAName)
 	require.Equal(t, "coin", again[0].Tokens[0])
 	require.Equal(t, 1, again[0].Region.X)
 	require.Equal(t, "1", again[0].Provenance.Params["seed"])
@@ -207,25 +213,25 @@ func testDataPackage() *assetsdb.DataPackage {
 		SchemaVersion: 1,
 		Sources: []assetsdb.Source{
 			{
-				Name: "source-b", Title: "Source B", Path: "stored/source-b.raw", Type: "curated",
-				Licenses: []assetsdb.License{{Name: "CC0-1.0"}}, Tags: []string{"audio"},
+				Name: sourceBName, Title: "Source B", Path: "stored/source-b.raw", Type: "curated",
+				Licenses: []assetsdb.License{{Name: spdxCC0}}, Tags: []string{"audio"},
 			},
 			{
-				Name: "source-a", Title: "Source A", Path: "archives/custom-a.zip", Type: "curated",
-				Licenses: []assetsdb.License{{Name: "CC0-1.0"}}, Tags: []string{"icons"},
+				Name: sourceAName, Title: "Source A", Path: "archives/custom-a.zip", Type: "curated",
+				Licenses: []assetsdb.License{{Name: spdxCC0}}, Tags: []string{"icons"},
 			},
 		},
 		Resources: []assetsdb.Item{
 			{
-				Name: "z", Path: "images/z.png", ID: "assetsdb:source-a/z.png", Source: "source-a",
+				Name: "z", Path: "images/z.png", ID: "assetsdb:source-a/z.png", Source: sourceAName,
 				Title: "Silver Coin", Tokens: []string{"silver", "coin"},
 			},
 			{
-				Name: "hit", Path: "audio/hit.ogg", ID: "assetsdb:source-b/hit.ogg", Source: "source-b",
+				Name: "hit", Path: "audio/hit.ogg", ID: "assetsdb:source-b/hit.ogg", Source: sourceBName,
 				Title: "Hit Sound", Tokens: []string{"hit", "sound"},
 			},
 			{
-				Name: "a", Path: "images/a.png", ID: "assetsdb:source-a/a.png", Source: "source-a",
+				Name: "a", Path: "images/a.png", ID: "assetsdb:source-a/a.png", Source: sourceAName,
 				Title: "Gold Coin", Tokens: []string{"coin", "gold"}, Region: &assetsdb.Region{X: 1},
 				Provenance: &assetsdb.Provenance{Params: map[string]string{"seed": "1"}},
 			},
