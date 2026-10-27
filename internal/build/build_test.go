@@ -14,6 +14,14 @@ import (
 	"github.com/jbeshir/assetsdb"
 )
 
+const (
+	ingesterA = "fakeA"
+	ingesterB = "fakeB"
+	packAName = "pack-a"
+	packBName = "pack-b"
+	spdxCC0   = "CC0-1.0"
+)
+
 // fakeIngester is a network-free assetsdb.Ingester stand-in for testing Build.
 type fakeIngester struct {
 	name  string
@@ -52,13 +60,13 @@ func TestBuild(t *testing.T) {
 	dir := t.TempDir()
 
 	ingesters := map[string]assetsdb.Ingester{
-		"fakeA": &fakeIngester{
-			name: "fakeA",
+		ingesterA: &fakeIngester{
+			name: ingesterA,
 			src: assetsdb.Source{
-				Name:     "pack-a",
+				Name:     packAName,
 				Title:    "Pack A",
 				Path:     "sources/pack-a.zip",
-				Licenses: []assetsdb.License{{Name: "CC0-1.0"}},
+				Licenses: []assetsdb.License{{Name: spdxCC0}},
 				Type:     "curated",
 			},
 			items: []assetsdb.Item{
@@ -66,7 +74,7 @@ func TestBuild(t *testing.T) {
 					Name:   "pack-a-widget",
 					Path:   "a.png",
 					ID:     "assetsdb:pack-a/a.png",
-					Source: "pack-a",
+					Source: packAName,
 					Kind:   assetsdb.KindSprite2D,
 					Title:  "Alpha Widget",
 					Tokens: []string{"alpha", "widget"},
@@ -74,13 +82,13 @@ func TestBuild(t *testing.T) {
 			},
 			zip: buildZip(t, map[string][]byte{"a.png": []byte("dataA")}),
 		},
-		"fakeB": &fakeIngester{
-			name: "fakeB",
+		ingesterB: &fakeIngester{
+			name: ingesterB,
 			src: assetsdb.Source{
-				Name:     "pack-b",
+				Name:     packBName,
 				Title:    "Pack B",
 				Path:     "sources/pack-b.zip",
-				Licenses: []assetsdb.License{{Name: "CC0-1.0"}},
+				Licenses: []assetsdb.License{{Name: spdxCC0}},
 				Type:     "curated",
 			},
 			items: []assetsdb.Item{
@@ -88,7 +96,7 @@ func TestBuild(t *testing.T) {
 					Name:   "pack-b-explosion",
 					Path:   "b.ogg",
 					ID:     "assetsdb:pack-b/b.ogg",
-					Source: "pack-b",
+					Source: packBName,
 					Kind:   assetsdb.KindAudio,
 					Title:  "Explosion Sound",
 					Tokens: []string{"explosion", "sound"},
@@ -99,8 +107,8 @@ func TestBuild(t *testing.T) {
 	}
 
 	specs := []assetsdb.PackSpec{
-		{ID: "pack-b", Name: "Pack B", Source: "fakeB"},
-		{ID: "pack-a", Name: "Pack A", Source: "fakeA"},
+		{ID: packBName, Name: "Pack B", Source: ingesterB},
+		{ID: packAName, Name: "Pack A", Source: ingesterA},
 	}
 
 	now := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
@@ -165,7 +173,7 @@ packs:
 	require.Equal(t, "Test Pack", specs[0].Name)
 	require.Equal(t, "kenney", specs[0].Source)
 	require.Equal(t, []string{"alpha", "beta"}, specs[0].Tags)
-	require.Equal(t, "CC0-1.0", specs[0].License)
+	require.Equal(t, spdxCC0, specs[0].License)
 }
 
 func TestLoadManifestRealPacksYAML(t *testing.T) {

@@ -241,13 +241,17 @@ func readTestDB(
 ) *assetsdb.DB {
 	t.Helper()
 
+	rootDir, err := os.OpenRoot(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rootDir.Close() })
+
 	for path, contents := range archives {
-		fullPath := filepath.Join(root, filepath.FromSlash(path))
-		require.NoError(t, os.MkdirAll(filepath.Dir(fullPath), 0o750))
-		require.NoError(t, os.WriteFile(fullPath, contents, 0o600))
+		fullPath := filepath.FromSlash(path)
+		require.NoError(t, rootDir.MkdirAll(filepath.Dir(fullPath), 0o750))
+		require.NoError(t, rootDir.WriteFile(fullPath, contents, 0o600))
 	}
 
-	index, err := os.Create(filepath.Join(root, "datapackage.json")) // #nosec G304 -- test path.
+	index, err := rootDir.Create("datapackage.json")
 	require.NoError(t, err)
 	require.NoError(t, assetsdb.Encode(index, dataPackage))
 	require.NoError(t, index.Close())

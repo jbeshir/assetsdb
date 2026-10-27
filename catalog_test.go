@@ -7,12 +7,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	spdxCC0        = "CC0-1.0"
+	themeSpace     = "space"
+	themeFurniture = "furniture"
+	tagShooter     = "shooter"
+)
+
 func TestLicenseForSPDX(t *testing.T) {
 	require.Equal(t, License{
-		Name:  "CC0-1.0",
+		Name:  spdxCC0,
 		Path:  "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
 		Title: "Creative Commons Zero v1.0 Universal",
-	}, LicenseForSPDX("CC0-1.0"))
+	}, LicenseForSPDX(spdxCC0))
 
 	require.Equal(t, License{Name: "MIT"}, LicenseForSPDX("MIT"))
 	require.Equal(t, License{}, LicenseForSPDX(""))
@@ -77,30 +84,30 @@ func TestCuratedSource(t *testing.T) {
 		ID:    "kenney-space",
 		Name:  "Kenney Space",
 		URL:   "https://kenney.nl/assets/space",
-		Theme: "space",
-		Tags:  []string{"shooter", "2d"},
+		Theme: themeSpace,
+		Tags:  []string{tagShooter, "2d"},
 	}
 
-	src := CuratedSource(spec, LicenseForSPDX("CC0-1.0"))
+	src := CuratedSource(spec, LicenseForSPDX(spdxCC0))
 	require.Equal(t, "kenney-space", src.Name)
 	require.Equal(t, "Kenney Space", src.Title)
 	require.Equal(t, "sources/kenney-space.zip", src.Path)
 	require.Equal(t, "curated", src.Type)
 	require.Equal(t, "https://kenney.nl/assets/space", src.Origin)
 	// Theme folded to the front of the tags.
-	require.Equal(t, []string{"space", "shooter", "2d"}, src.Tags)
-	require.Equal(t, []License{LicenseForSPDX("CC0-1.0")}, src.Licenses)
+	require.Equal(t, []string{themeSpace, tagShooter, "2d"}, src.Tags)
+	require.Equal(t, []License{LicenseForSPDX(spdxCC0)}, src.Licenses)
 }
 
 func TestCuratedSourceThemeAlreadyInTags(t *testing.T) {
 	spec := PackSpec{
 		ID:    "p",
-		Theme: "furniture",
-		Tags:  []string{"furniture", "interior"},
+		Theme: themeFurniture,
+		Tags:  []string{themeFurniture, "interior"},
 	}
-	src := CuratedSource(spec, LicenseForSPDX("CC0-1.0"))
+	src := CuratedSource(spec, LicenseForSPDX(spdxCC0))
 	// Theme is not duplicated when it already appears in the tags.
-	require.Equal(t, []string{"furniture", "interior"}, src.Tags)
+	require.Equal(t, []string{themeFurniture, "interior"}, src.Tags)
 }
 
 func TestCuratedSourceZeroLicenseOmitted(t *testing.T) {
